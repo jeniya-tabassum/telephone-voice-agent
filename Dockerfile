@@ -13,7 +13,15 @@ RUN apt-get update \
 
 COPY . .
 
+# uid 1000 must match the host owner (ubuntu) of the bind-mounted ./logs, or the
+# app's FileHandler fails to open its log file and the container dies on startup.
+RUN useradd --create-home --uid 1000 appuser \
+    && mkdir -p /app/logs \
+    && chown appuser:appuser /app/logs
+
 EXPOSE 8000 8001
+
+USER appuser
 
 # Web server by default; the twilio compose service overrides this command.
 CMD ["python", "client.py"]

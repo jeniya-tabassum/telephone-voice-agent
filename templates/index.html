@@ -541,34 +541,59 @@
             logDiv.className = 'timeline-item log-message latency-card';
             logDiv.dataset.messageId = currentCounter;
 
-            let html = '<div class="latency-breakdown">';
-            html += '<div class="latency-title">Latency Breakdown</div>';
+            const breakdown = document.createElement('div');
+            breakdown.className = 'latency-breakdown';
+
+            const title = document.createElement('div');
+            title.className = 'latency-title';
+            title.textContent = 'Latency Breakdown';
+            breakdown.appendChild(title);
+
+            // Built as nodes, not concatenated markup: function_name comes from
+            // the agent and must never be parsed as HTML
+            function addLatencyRow(label, value, extraClass, valueColor) {
+                const row = document.createElement('div');
+                row.className = extraClass ? `latency-row ${extraClass}` : 'latency-row';
+
+                const labelSpan = document.createElement('span');
+                labelSpan.textContent = label;
+
+                const valueSpan = document.createElement('span');
+                valueSpan.className = 'latency-value';
+                valueSpan.textContent = `${value}ms`;
+                if (valueColor) {
+                    valueSpan.style.color = valueColor;
+                }
+
+                row.appendChild(labelSpan);
+                row.appendChild(valueSpan);
+                breakdown.appendChild(row);
+            }
 
             if (data.stt !== undefined) {
-                html += `<div class="latency-row"><span>STT</span><span class="latency-value">${data.stt}ms</span></div>`;
+                addLatencyRow('STT', data.stt);
             }
             if (data.llm_think !== undefined) {
-                html += `<div class="latency-row"><span>LLM Think</span><span class="latency-value">${data.llm_think}ms</span></div>`;
+                addLatencyRow('LLM Think', data.llm_think);
             }
             if (data.function !== undefined) {
                 const fname = data.function_name || 'function';
-                html += `<div class="latency-row"><span>${fname}</span><span class="latency-value">${data.function}ms</span></div>`;
+                addLatencyRow(fname, data.function);
                 if (data.function_api !== undefined) {
-                    html += `<div class="latency-row latency-sub"><span>&#9492; API call</span><span class="latency-value">${data.function_api}ms</span></div>`;
+                    addLatencyRow('└ API call', data.function_api, 'latency-sub');
                 }
             }
             if (data.llm_after_func !== undefined) {
-                html += `<div class="latency-row"><span>LLM (post-func)</span><span class="latency-value">${data.llm_after_func}ms</span></div>`;
+                addLatencyRow('LLM (post-func)', data.llm_after_func);
             }
             if (data.tts !== undefined) {
-                html += `<div class="latency-row"><span>TTS</span><span class="latency-value">${data.tts}ms</span></div>`;
+                addLatencyRow('TTS', data.tts);
             }
             if (data.total !== undefined) {
                 const color = data.total < 2000 ? 'var(--success)' : data.total < 4000 ? 'var(--warning)' : 'var(--danger)';
-                html += `<div class="latency-row latency-total"><span>Total</span><span class="latency-value" style="color:${color}">${data.total}ms</span></div>`;
+                addLatencyRow('Total', data.total, 'latency-total', color);
             }
-            html += '</div>';
-            logDiv.innerHTML = html;
+            logDiv.appendChild(breakdown);
 
             insertTimelineItem(logDiv, timestamp, logMessages);
 
@@ -591,6 +616,13 @@
             container.appendChild(element);
         }
 
+        function escapeHtml(text) {
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
         function convertAnsiToHtml(text) {
             const ansiToHtml = {
                 dark: {
@@ -610,7 +642,9 @@
                 '[0m': ''
             };
 
-            let html = text.replace(/\[0m/g, '');
+            // Escape first: the ANSI wrapper below injects spans, so raw log
+            // text must never reach innerHTML as markup
+            let html = escapeHtml(text).replace(/\[0m/g, '');
             const isDarkMode = document.body.classList.contains('dark-mode');
             const colorSet = isDarkMode ? ansiToHtml.dark : ansiToHtml.light;
 

@@ -1,10 +1,10 @@
-# Twilio phone bridge — /etc/systemd/system/twilio-agent.service
-# nginx already proxies https://voice.deepgram.com/twilio/ -> 127.0.0.1:8001
+# SUPERSEDED — DO NOT INSTALL. Kept only as a record of the pre-Docker setup.
 #
-# Install:
-#   sudo cp deploy/twilio-agent.service /etc/systemd/system/
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now twilio-agent
+# The Twilio bridge now runs as the `twilio` service in docker-compose.yml
+# (container voice-agent-twilio, published on 127.0.0.1:8001). Enabling this unit
+# would either fail to bind 8001 against the running container or serve stale
+# code from /home/ubuntu/voice-agent. To deploy or restart, use
+# `docker compose build && docker compose up -d` — see README "Deploy".
 [Unit]
 Description=Deepgram Telephone Voice Agent (Twilio bridge)
 After=network.target

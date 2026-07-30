@@ -58,6 +58,20 @@ Twilio media streams require TLS — on the EC2 box, nginx terminates
 `voice.deepgram.com` (Let's Encrypt) and proxies `/twilio/` to
 `127.0.0.1:8001` with websocket upgrade.
 
+## Deploy
+
+Both entrypoints run as containers (`web` :8000, `twilio` :8001) from one image;
+nginx on the box proxies `voice.deepgram.com` to them. `.env` lives only on the
+box — never rsync it.
+
+```bash
+rsync -av --exclude venv --exclude .venv --exclude logs --exclude __pycache__ \
+  --exclude .env ./ ubuntu@voice.deepgram.com:/home/ubuntu/voice-agent/
+# on the box, in ~/voice-agent:
+export VOICE_AGENT_TAG=$(date +%Y%m%d-%H%M)   # omit for :latest
+docker compose build && docker compose up -d  # rollback: re-export an older tag, up -d again
+```
+
 ## How answers stay fast and grounded
 
 - `search_deepgram_docs` → relay `/search-hybrid`: local MiniLM index + curated

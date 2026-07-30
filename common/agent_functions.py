@@ -5,7 +5,10 @@ import asyncio
 import time
 import logging
 
-from common.config import RELAY_BASE, DEFAULT_VOICE_MODEL, build_speak_provider
+from common.config import (
+    RELAY_BASE, DEFAULT_VOICE_MODEL, DEFAULT_LANGUAGE, build_speak_provider,
+    voice_name_from_model, WEB_STT_MODEL, STT_EOT_THRESHOLD, STT_KEYTERMS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,12 +104,15 @@ def create_voice_state():
         "gender": "female",
         "accent": "american",
         "model": DEFAULT_VOICE_MODEL,
+        # STT language currently configured on the session, not the requested one.
+        "language": DEFAULT_LANGUAGE,
     }
 
-# Voice options by gender and accent
+# Voice options by gender and accent. ("female", "american") is the voice the
+# call starts with, so an accent round-trip lands back on the default.
 VOICE_OPTIONS = {
     # English voices
-    ("female", "american"): "aura-2-thalia-en",
+    ("female", "american"): DEFAULT_VOICE_MODEL,
     ("female", "british"): "aura-2-pandora-en",
     ("female", "australian"): "aura-2-theia-en",
     ("male", "american"): "aura-2-orion-en",
@@ -174,6 +180,23 @@ VOICE_NAME_MAP = {
     "fujin": "aura-2-fujin-ja",
 }
 
+# The starting voice must be reachable by name too. VOICE_MODEL is
+# env-overridable, so register whatever name it resolves to.
+DEFAULT_VOICE_NAME_KEY = voice_name_from_model(DEFAULT_VOICE_MODEL).lower()
+VOICE_NAME_MAP[DEFAULT_VOICE_NAME_KEY] = DEFAULT_VOICE_MODEL
+
+FEMININE_VOICE_NAMES = {
+    "haley", "thalia", "andromeda", "helena", "pandora", "theia", "luna",
+    "athena", "aurora", "iris", "estrella", "celeste", "agathe",
+    "viktoria", "livia", "rhea", "izanami",
+}
+
+# Phrases that mean "go back to the voice the call started with"
+DEFAULT_VOICE_PHRASES = (
+    "default", "original", "first voice", "starting voice", "usual voice",
+    "normal voice", "back to normal", "voice you started",
+)
+
 # Map accent/language to Deepgram language codes for STT
 ACCENT_TO_LANGUAGE_CODE = {
     "american": "en",
@@ -187,12 +210,55 @@ ACCENT_TO_LANGUAGE_CODE = {
     "japanese": "ja",
 }
 
-def get_voice_name(model):
-    """Extract friendly name from model string."""
-    # Remove prefix and language suffix
-    name = model.replace("aura-2-", "")
-    name = name.rsplit("-", 1)[0]  # Remove -en, -es, -fr, etc.
-    return name.capitalize()
+LANGUAGE_CODE_TO_ACCENT = {
+    "es": "spanish",
+    "fr": "french",
+    "de": "german",
+    "it": "italian",
+    "nl": "dutch",
+    "ja": "japanese",
+}
+
+LANGUAGE_NAMES = {
+    "en": "English",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "nl": "Dutch",
+    "ja": "Japanese",
+}
+
+# Flux is English-only, so a non-English session has to fall back to the
+# multilingual Nova-3 model, which takes neither keyterms nor eot_threshold.
+MULTILINGUAL_STT_MODEL = "nova-3"
+
+
+def _language_from_model(model):
+    """Language code a TTS model speaks, from its suffix (aura-2-nestor-es -> es)."""
+    suffix = model.rsplit("-", 1)[-1]
+    return suffix if suffix in LANGUAGE_NAMES else "en"
+
+
+def _build_listen_provider(lang_code):
+    """UpdateListen provider for a language, mirroring build_listen_settings.
+
+    Only ever sent on the web path (update_listen=True), so the English case
+    restores that path's Flux model together with its keyterm/turn-end tuning
+    instead of leaving the session on the multilingual fallback.
+    """
+    if lang_code == "en":
+        return {
+            "type": "deepgram",
+            "model": WEB_STT_MODEL,
+            "eot_threshold": STT_EOT_THRESHOLD,
+            "keyterms": list(STT_KEYTERMS),
+        }
+    return {
+        "type": "deepgram",
+        "model": MULTILINGUAL_STT_MODEL,
+        "language": lang_code,
+    }
 
 
 async def switch_voice(websocket, params, voice_state=None, update_listen=True):
@@ -202,16 +268,33 @@ async def switch_voice(websocket, params, voice_state=None, update_listen=True):
 
     voice_type = params.get("voice_type", "").lower()
     selected_voice = None
+    # Set when a language was asked for but this session cannot transcribe it.
+    refused_language = None
 
-    # First check if user requested a specific voice name
-    for name, model in VOICE_NAME_MAP.items():
-        if name in voice_type:
-            selected_voice = model
-            feminine_voices = ["thalia", "andromeda", "helena", "pandora", "theia", "luna",
-                             "athena", "aurora", "iris", "estrella", "celeste", "agathe",
-                             "viktoria", "livia", "rhea", "izanami"]
-            voice_state["gender"] = "female" if name in feminine_voices else "male"
-            break
+    # "back to the original voice" / "default voice" returns to the start state
+    if any(phrase in voice_type for phrase in DEFAULT_VOICE_PHRASES):
+        selected_voice = DEFAULT_VOICE_MODEL
+        voice_state["gender"] = (
+            "female" if DEFAULT_VOICE_NAME_KEY in FEMININE_VOICE_NAMES else "male"
+        )
+
+    # Then check if user requested a specific voice name
+    if not selected_voice:
+        for name, model in VOICE_NAME_MAP.items():
+            if name in voice_type:
+                selected_voice = model
+                voice_state["gender"] = "female" if name in FEMININE_VOICE_NAMES else "male"
+                break
+
+    if selected_voice:
+        # A named voice implies its own language; keep the accent bucket in sync
+        # so a later gender-only switch does not jump languages.
+        named_lang = _language_from_model(selected_voice)
+        if named_lang == "en":
+            if ACCENT_TO_LANGUAGE_CODE.get(voice_state["accent"], "en") != "en":
+                voice_state["accent"] = "american"
+        else:
+            voice_state["accent"] = LANGUAGE_CODE_TO_ACCENT[named_lang]
 
     if not selected_voice:
         requested_gender = voice_state["gender"]
@@ -241,16 +324,30 @@ async def switch_voice(websocket, params, voice_state=None, update_listen=True):
         elif "japanese" in voice_type or "日本語" in voice_type:
             requested_accent = "japanese"
 
+        # A language this session cannot transcribe must be refused before
+        # anything is committed: switching TTS to a foreign voice while STT
+        # stays English leaves the agent speaking English through the wrong
+        # model for the rest of the call, and a stuck foreign accent in
+        # voice_state would re-trigger the refusal on later gender-only asks.
+        if not update_listen:
+            session_lang = voice_state.get("language", DEFAULT_LANGUAGE)
+            if ACCENT_TO_LANGUAGE_CODE.get(requested_accent, "en") != session_lang:
+                refused_language = ACCENT_TO_LANGUAGE_CODE.get(requested_accent, "en")
+                requested_accent = voice_state["accent"]
+
         selected_voice = VOICE_OPTIONS.get(
             (requested_gender, requested_accent),
-            "aura-2-thalia-en"
+            DEFAULT_VOICE_MODEL
         )
 
         voice_state["gender"] = requested_gender
         voice_state["accent"] = requested_accent
 
     voice_state["model"] = selected_voice
-    new_voice_name = get_voice_name(selected_voice)
+    new_voice_name = voice_name_from_model(selected_voice)
+
+    requested_lang = ACCENT_TO_LANGUAGE_CODE.get(voice_state["accent"], "en")
+    session_lang = voice_state.get("language", DEFAULT_LANGUAGE)
 
     update_speak = {
         "type": "UpdateSpeak",
@@ -261,35 +358,55 @@ async def switch_voice(websocket, params, voice_state=None, update_listen=True):
     await websocket.send(json.dumps(update_speak))
     logger.info(f"TTS voice switched to: {selected_voice}")
 
-    accent = voice_state["accent"]
-    lang_code = ACCENT_TO_LANGUAGE_CODE.get(accent, "en")
-
-    # Also update the STT language to match (skip for Twilio/mulaw sessions)
-    if update_listen:
-        if lang_code == "en":
-            stt_language = "multi"
-        else:
-            stt_language = lang_code
-
+    # Only touch STT when the language actually changes — an accent swap within
+    # English must keep the session's tuned English model. Twilio/mulaw sessions
+    # pass update_listen=False and cannot change STT at all, so there the agent
+    # has to stay in the language STT is already transcribing.
+    if requested_lang != session_lang and update_listen:
         update_listen_msg = {
             "type": "UpdateListen",
-            "listen": {
-                "provider": {
-                    "type": "deepgram",
-                    "model": "nova-3",
-                    "language": stt_language,
-                }
-            }
+            "listen": {"provider": _build_listen_provider(requested_lang)},
         }
         await websocket.send(json.dumps(update_listen_msg))
-        logger.info(f"STT language switched to: {stt_language}")
+        voice_state["language"] = requested_lang
+        session_lang = requested_lang
+        logger.info(f"STT language switched to: {requested_lang}")
+
+    spoken_lang = session_lang
+    # A refusal is recorded only for the request that actually asked for an
+    # unreachable language, so a later gender-only switch is not treated as one.
+    language_switched = requested_lang == spoken_lang and refused_language is None
+    spoken_language_name = LANGUAGE_NAMES.get(spoken_lang, "English")
+    if refused_language:
+        requested_lang = refused_language
+
+    if language_switched:
+        message = (
+            f"Voice switched. You are now {new_voice_name}. "
+            f"Introduce yourself briefly in {spoken_language_name}."
+        )
+    else:
+        # Truthfulness first: the voice changed but transcription did not, so the
+        # LLM must not pretend the call switched language.
+        message = (
+            f"Voice switched to {new_voice_name}, but this line can only transcribe "
+            f"{spoken_language_name}, so keep speaking {spoken_language_name}. In one short "
+            f"sentence, say you can change your voice but have to keep speaking "
+            f"{spoken_language_name} on this call. Do NOT answer in "
+            f"{LANGUAGE_NAMES.get(requested_lang, 'another language')}."
+        )
+        logger.info(
+            f"Language switch to {requested_lang} declined: STT stays on {spoken_lang}"
+        )
 
     # Return info for LLM to respond naturally
     return {
         "success": True,
         "new_voice_name": new_voice_name,
-        "language": lang_code,
-        "message": f"Voice switched. You are now {new_voice_name}. Introduce yourself briefly.",
+        "language": spoken_lang,
+        "requested_language": requested_lang,
+        "language_switched": language_switched,
+        "message": message,
     }
 
 
@@ -379,12 +496,15 @@ FUNCTION_DEFINITIONS = [
 
         Both male AND female voices are available for all accents/languages.
         Supported accents/languages: american, british, australian, spanish, french, german, italian, dutch, japanese
+        To return to the voice the call started with, pass "default voice".
 
         IMPORTANT: Always include the requested gender (male/female) in voice_type. If the user says "female voice", "woman", or a specific female name, include "female". If they say "male voice", "man", include "male".
 
-        IMPORTANT: If user speaks Spanish, French, German, etc., call this function FIRST, then respond in their language.
+        IMPORTANT: If user speaks Spanish, French, German, etc., call this function FIRST.
 
-        After calling, respond in the new language (if applicable) and introduce yourself.
+        IMPORTANT: The result decides which language you may speak. If it reports language_switched false, this line can only transcribe the language named in the result: keep speaking that language even though the user asked for another one, and say so in one short sentence. Only answer in another language when the result reports language_switched true for it.
+
+        After calling, introduce yourself briefly with the name the result gives you.
         """,
         "parameters": {
             "type": "object",

@@ -10,9 +10,16 @@
 #   - app file logs (logs/voice_agent.log, logs/twilio_server.log) -> bind
 #     mount ./logs, which survives even container removal and rebuilds.
 #   - restart: unless-stopped brings both back after a crash or host reboot.
+#
+# VOICE_AGENT_TAG pins the image both services run, so a dated tag can be built
+# and an older one rolled back to without overwriting the last known-good image.
+# Unset it and the tag is `latest`, i.e. the plain build/up flow is unchanged.
+#
+# mem_limit: the host has 911 MiB and no swap, so an unbounded container can get
+# nginx or dockerd OOM-killed instead of itself. Combined idle use is ~130 MiB.
 
 x-common: &common
-  image: voice-agent:latest
+  image: voice-agent:${VOICE_AGENT_TAG:-latest}
   env_file: .env
   volumes:
     - ./logs:/app/logs
@@ -31,6 +38,14 @@ services:
     command: python client.py
     ports:
       - "127.0.0.1:8000:8000"
+    mem_limit: 256m
+    healthcheck:
+      # curl is not in python:3.12-slim; urllib raises on any non-2xx.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
 
   twilio:
     <<: *common
@@ -38,3 +53,10 @@ services:
     command: uvicorn twilio_server:app --host 0.0.0.0 --port 8001
     ports:
       - "127.0.0.1:8001:8001"
+    mem_limit: 320m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/twilio/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
