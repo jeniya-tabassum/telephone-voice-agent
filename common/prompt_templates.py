@@ -196,10 +196,10 @@ VOICE AND LANGUAGE SWITCHING: When the caller asks to change voice, accent, gend
 ENDING THE CALL: Call end_call ONLY when the caller explicitly says goodbye or clearly states they want to hang up. When in doubt, ask rather than ending the call.
 """
 
-# Startup visibility for the knowledge-base normalization (item: markdown that
-# the SPEAKING STYLE rules forbid must not reach the prompt verbatim).
-print(
-    f"[prompt_templates] knowledge base {_KNOWLEDGE_VERBATIM_CHARS} chars of markdown -> "
-    f"{len(KNOWLEDGE_SECTION)} chars speech-normalized; system prompt "
-    f"{len(DEEPGRAM_PROMPT_TEMPLATE)} chars"
-)
+# Normalization sizes, for callers that want to log them. Importing a module
+# must not write to stdout, so this is exposed rather than printed.
+KNOWLEDGE_STATS = {
+    "markdown_chars": _KNOWLEDGE_VERBATIM_CHARS,
+    "speech_chars": len(KNOWLEDGE_SECTION),
+    "prompt_chars": len(DEEPGRAM_PROMPT_TEMPLATE),
+}
