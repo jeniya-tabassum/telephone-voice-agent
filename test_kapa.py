@@ -16,10 +16,12 @@ async def test_kapa_query():
     """Test kapa_query with sample questions"""
     
     test_questions = [
-        "What is Deepgram?",
-        "What TTS voices are available?",
-        "How does speech-to-text work?",
-        "What languages do you support?",
+        "Does Deepgram support Arabic for speech to text?",
+        # "What is Deepgram?",
+        # "What TTS voices are available?",
+        # "How does speech-to-text work?",
+        # "What languages do you support?",
+        
     ]
     
     print("=" * 60)
@@ -48,7 +50,7 @@ async def test_kapa_query():
         if result.get("success"):
             print(f"Latency: {result.get('latency_seconds', 'N/A')}s")
             print(f"Chunks retrieved: {result.get('num_chunks', 0)}")
-            print(f"Context:\n{result.get('context', 'No context')[:800]}...")
+            print(f"Context:\n{result.get('context', 'No context')}")
         else:
             print(f"Error: {result.get('error', 'Unknown error')}")
         

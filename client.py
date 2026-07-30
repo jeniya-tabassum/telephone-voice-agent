@@ -14,9 +14,12 @@ import audioop
 import random
 import requests
 from datetime import datetime
-from common.agent_functions import FUNCTION_MAP
+from common.agent_functions import FUNCTION_MAP, create_voice_state
 from common.agent_templates import AgentTemplates, AGENT_AUDIO_SAMPLE_RATE
-from common.config import FILLER_MESSAGES, CORS_ALLOWED_ORIGINS, WEB_PORT
+from common.config import (
+    FILLER_MESSAGES, CORS_ALLOWED_ORIGINS, WEB_PORT,
+    DEFAULT_VOICE_MODEL, DEFAULT_VOICE_NAME,
+)
 import logging
 from common.log_formatter import CustomFormatter
 
@@ -49,7 +52,7 @@ logging.getLogger().handlers = []
 class VoiceAgent:
     def __init__(
         self,
-        voiceModel="aura-2-thalia-en",
+        voiceModel=DEFAULT_VOICE_MODEL,
         voiceName="",
         language="en",
         browser_audio=False,
@@ -65,6 +68,7 @@ class VoiceAgent:
         self.output_device_id = None
         self.browser_audio = browser_audio
         self.browser_output = browser_audio
+        self.voice_state = create_voice_state()
         self.agent_templates = AgentTemplates(
             voiceModel=voiceModel, voiceName=voiceName, language=language
         )
@@ -303,6 +307,13 @@ class VoiceAgent:
                             elif turn_timestamps["user_text_time"]:
                                 emit_latency()
 
+                        elif message_type == "Warning":
+                            code = message_json.get("code", "")
+                            if code == "INJECT_AGENT_MESSAGE_DURING_AGENT_SPEECH":
+                                if not filler_complete.is_set():
+                                    filler_complete.set()
+                                    logger.info("Filler rejected (agent speaking), unblocking response")
+
                         elif message_type == "FunctionCalling":
                             if in_function_chain and last_function_response_time:
                                 latency = current_time - last_function_response_time
@@ -368,7 +379,7 @@ class VoiceAgent:
 
                                 # switch_voice: no filler needed
                                 elif function_name == "switch_voice":
-                                    result = await func(self.ws, parameters)
+                                    result = await func(self.ws, parameters, voice_state=self.voice_state)
                                     logger.info(f"Voice switched to: {result.get('new_voice_name')}")
 
                                     execution_time = time.time() - start_time
@@ -385,7 +396,7 @@ class VoiceAgent:
                                     logger.info(f"Function response sent: {json.dumps(result)}")
                                     last_function_response_time = time.time()
 
-                                # All other functions (kapa_query, etc): inject filler, execute concurrently
+                                # All other functions (search_deepgram_docs, etc): inject filler, execute concurrently
                                 else:
                                     filler = random.choice(FILLER_MESSAGES)
                                     filler_complete.clear()
@@ -672,7 +683,11 @@ def get_audio_devices():
 # Flask routes
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template(
+        "index.html",
+        voice_model=DEFAULT_VOICE_MODEL,
+        voice_name=DEFAULT_VOICE_NAME,
+    )
 
 
 @app.route("/audio-devices")
@@ -785,7 +800,7 @@ def handle_start_voice_agent(data=None):
     logger.info(f"Starting voice agent with data: {data}")
     if voice_agent is None:
         voiceModel = (
-            data.get("voiceModel", "aura-2-thalia-en") if data else "aura-2-thalia-en"
+            data.get("voiceModel", DEFAULT_VOICE_MODEL) if data else DEFAULT_VOICE_MODEL
         )
         # Get voice name from data or default to empty string, which uses the Model's voice name in the backend
         voiceName = data.get("voiceName", "") if data else ""

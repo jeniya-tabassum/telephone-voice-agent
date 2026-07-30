@@ -1,0 +1,40 @@
+# Deepgram Telephone Voice Agent — web UI (client.py, :8000) + Twilio bridge
+# (twilio_server.py, :8001). nginx on the host proxies voice.deepgram.com to
+# these ports, so both bind to localhost only.
+#
+# Logging (both services):
+#   - stdout/stderr -> Docker json-file driver with rotation (5 x 20 MB per
+#     service). Kept on the host under /var/lib/docker/containers/, so
+#     `docker logs`/`docker compose logs` still show pre-crash output after a
+#     crash or restart. Removed only if the container itself is removed.
+#   - app file logs (logs/voice_agent.log, logs/twilio_server.log) -> bind
+#     mount ./logs, which survives even container removal and rebuilds.
+#   - restart: unless-stopped brings both back after a crash or host reboot.
+
+x-common: &common
+  image: voice-agent:latest
+  env_file: .env
+  volumes:
+    - ./logs:/app/logs
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+services:
+  web:
+    <<: *common
+    build: .
+    container_name: voice-agent-web
+    command: python client.py
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  twilio:
+    <<: *common
+    container_name: voice-agent-twilio
+    command: uvicorn twilio_server:app --host 0.0.0.0 --port 8001
+    ports:
+      - "127.0.0.1:8001:8001"

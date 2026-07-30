@@ -1,7 +1,11 @@
 # Phone Agent Test Script
 
-Call the Twilio number and follow these test scenarios in order.
+Call **(415) 301-3720** and follow these test scenarios in order.
 After each step, note PASS/FAIL and any observations.
+
+Filler behavior changed with the relay upgrade: fillers ("One moment...") only
+play when a lookup takes longer than 500ms. Fast answers come back directly —
+hearing NO filler before a quick answer is a PASS, not a bug.
 
 ---
 
@@ -11,23 +15,23 @@ After each step, note PASS/FAIL and any observations.
 
 ---
 
-## 2. Knowledge Base — Basic Question
+## 2. FAQ Fast Path — Basic Question
 
 **Say:** "What is Deepgram?"
 
 **Expected:**
-- You hear a filler like "Let me look that up" almost immediately
-- Agent responds with accurate info about Deepgram (speech-to-text, text-to-speech, voice AI)
+- NO filler and NO search — answered instantly from the prompt FAQ
+- Accurate info about Deepgram (speech-to-text, text-to-speech, voice AI)
 
 ---
 
-## 3. Knowledge Base — Specific Question
+## 3. FAQ Fast Path — Languages
 
 **Say:** "What languages does Deepgram support?"
 
 **Expected:**
-- Filler plays quickly
-- Agent responds with supported languages from the knowledge base
+- NO filler — answered instantly from the prompt FAQ
+- Supported languages summary
 
 ---
 
@@ -36,12 +40,43 @@ After each step, note PASS/FAIL and any observations.
 **Say:** "How do I use the Deepgram streaming API?"
 
 **Expected:**
-- Filler plays quickly
+- Agent searches (usually fast — little or no filler)
 - Agent responds with technical details about the streaming API
 
 ---
 
-## 5. Voice Switch — Male
+## 5. Live Pricing
+
+**Say:** "How much does Nova-3 cost?"
+
+**Expected:**
+- Agent speaks an exact current price in cents per minute (via get_deepgram_pricing)
+- No made-up numbers, no "zero cents"
+
+---
+
+## 6. Deep Question — Expert Escalation
+
+**Say:** "How do I get a refund on my last invoice?"
+
+**Expected:**
+- Filler DOES play here (Kapa escalation is slow, ~10 seconds)
+- Agent answers from documentation, or gracefully points to Deepgram support
+- Agent does NOT invent console steps and does NOT narrate the search
+
+---
+
+## 7. Off-Topic — Scope Guard
+
+**Say:** "What's the weather in Tokyo?"
+
+**Expected:**
+- One short sentence declining, inviting a Deepgram question
+- NO search, NO filler
+
+---
+
+## 8. Voice Switch — Male
 
 **Say:** "Can you switch to a male voice?"
 
@@ -51,7 +86,7 @@ After each step, note PASS/FAIL and any observations.
 
 ---
 
-## 6. Voice Switch — Female
+## 9. Voice Switch — Female
 
 **Say:** "Switch to a female voice please."
 
@@ -61,7 +96,7 @@ After each step, note PASS/FAIL and any observations.
 
 ---
 
-## 7. Accent — British Male
+## 10. Accent — British Male
 
 **Say:** "Can you speak with a British male accent?"
 
@@ -71,7 +106,7 @@ After each step, note PASS/FAIL and any observations.
 
 ---
 
-## 8. Accent — Australian Female
+## 11. Accent — Australian Female
 
 **Say:** "Switch to a female Australian voice."
 
@@ -81,7 +116,7 @@ After each step, note PASS/FAIL and any observations.
 
 ---
 
-## 9. Accent — American Female
+## 12. Accent — American Female
 
 **Say:** "Go back to an American female voice."
 
@@ -91,17 +126,17 @@ After each step, note PASS/FAIL and any observations.
 
 ---
 
-## 10. Question After Voice Switch
+## 13. Question After Voice Switch
 
 **Say:** "What is Deepgram's text to speech product?"
 
 **Expected:**
-- Filler plays in the CURRENT voice
 - Agent answers in the CURRENT voice (not the original)
+- Any filler also plays in the CURRENT voice
 
 ---
 
-## 11. Barge-In Test
+## 14. Barge-In Test
 
 **Wait for agent to start a long response, then interrupt:**
 
@@ -113,7 +148,7 @@ After each step, note PASS/FAIL and any observations.
 
 ---
 
-## 12. Language — Spanish
+## 15. Language — Spanish
 
 **Say:** "Can you switch to Spanish?"
 
@@ -123,7 +158,7 @@ After each step, note PASS/FAIL and any observations.
 
 ---
 
-## 13. Language — French
+## 16. Language — French
 
 **Say:** "Switch to French please."
 
@@ -133,7 +168,7 @@ After each step, note PASS/FAIL and any observations.
 
 ---
 
-## 14. Language — Back to English
+## 17. Language — Back to English
 
 **Say:** "Switch back to English please."
 
@@ -143,7 +178,7 @@ After each step, note PASS/FAIL and any observations.
 
 ---
 
-## 15. End Call — Polite Goodbye
+## 18. End Call — Polite Goodbye
 
 **Say:** "Thank you, goodbye!"
 
