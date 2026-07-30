@@ -79,6 +79,12 @@ WELCOME_MESSAGES = {
     "en": "Hey, I'm {voiceName} from {company}. {capabilities} What are you curious about?",
 }
 
+# Used when the caller's number matches a registration. Unverified, so it only
+# ever affects the greeting - never what the agent is willing to disclose.
+WELCOME_MESSAGES_KNOWN_CALLER = {
+    "en": "Hey {callerName}, welcome back! It's {voiceName} from {company}. What can I help you with today?",
+}
+
 
 class AgentTemplates:
     def __init__(
@@ -86,6 +92,7 @@ class AgentTemplates:
         voiceModel=DEFAULT_VOICE_MODEL,
         voiceName="",
         language="en",
+        callerName="",
     ):
         self.voiceModel = voiceModel
         if voiceName == "":
@@ -118,11 +125,17 @@ class AgentTemplates:
 
         # Build welcome message
         lang_base = (self.language or "en").split("-")[0].lower()
-        welcome_template = WELCOME_MESSAGES.get(lang_base, WELCOME_MESSAGES["en"])
+        self.callerName = (callerName or "").strip()
+        if self.callerName:
+            templates = WELCOME_MESSAGES_KNOWN_CALLER
+        else:
+            templates = WELCOME_MESSAGES
+        welcome_template = templates.get(lang_base, templates["en"])
         self.first_message = welcome_template.format(
             voiceName=self.voiceName,
             company=self.company,
             capabilities=self.capabilities,
+            callerName=self.callerName,
         )
 
         # Update settings

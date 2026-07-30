@@ -36,6 +36,34 @@
                 <a class="callin-number" href="tel:+14153013720">+1 (415) 301-3720</a>
             </div>
 
+            <details class="side-details" id="registerDetails">
+                <summary>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                    Get a personal greeting
+                    <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                </summary>
+                <div class="details-body">
+                    <p class="guide-sub" style="margin:0;line-height:1.45">
+                        Register your number and {{ voice_name }} greets you by name when you
+                        call. Kept for 24 hours, then forgotten.
+                    </p>
+                    <div class="device-select">
+                        <label for="regName">Your name</label>
+                        <input id="regName" type="text" maxlength="40" placeholder="Jeniya"
+                               autocomplete="given-name">
+                    </div>
+                    <div class="device-select">
+                        <label for="regPhone">Phone number you'll call from</label>
+                        <input id="regPhone" type="tel" placeholder="(415) 555-0123"
+                               autocomplete="tel">
+                    </div>
+                    <button id="regSubmit" class="cta-button" style="font-size:13.5px;padding:10px">
+                        Register my number
+                    </button>
+                    <div id="regStatus" class="empty-hint" style="text-align:left"></div>
+                </div>
+            </details>
+
             <div class="nav-item active">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M7 13l4-4 4 3 5-6"/></svg>
                 Live Demo
@@ -180,6 +208,49 @@
         }
         segTranscript.addEventListener('click', () => setLogsVisible(false));
         segLogs.addEventListener('click', () => setLogsVisible(!showLogsToggle.checked));
+
+        // Caller registration — a personal greeting on the phone path.
+        const regName = document.getElementById('regName');
+        const regPhone = document.getElementById('regPhone');
+        const regSubmit = document.getElementById('regSubmit');
+        const regStatus = document.getElementById('regStatus');
+
+        async function registerCaller() {
+            regStatus.textContent = '';
+            const name = regName.value.trim();
+            const phone = regPhone.value.trim();
+            if (!name || !phone) {
+                regStatus.textContent = 'Name and number are both needed.';
+                return;
+            }
+            regSubmit.disabled = true;
+            regSubmit.textContent = 'Registering...';
+            try {
+                const res = await fetch('/register-caller', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, phone })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    regStatus.textContent = data.error || 'Could not register that number.';
+                } else {
+                    regStatus.textContent =
+                        `Done — call ${data.call} from ${data.registered} and you'll be `
+                        + `greeted as ${data.name}. Forgotten in ${data.expires_in_hours}h.`;
+                }
+            } catch (err) {
+                regStatus.textContent = 'Network error, please retry.';
+            } finally {
+                regSubmit.disabled = false;
+                regSubmit.textContent = 'Register my number';
+            }
+        }
+
+        regSubmit.addEventListener('click', registerCaller);
+        regPhone.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') registerCaller();
+        });
 
         // Populate audio devices
         async function loadAudioDevices() {

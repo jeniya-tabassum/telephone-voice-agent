@@ -14,11 +14,12 @@ import audioop
 import random
 import requests
 from datetime import datetime
+from common import callers
 from common.agent_functions import FUNCTION_MAP, create_voice_state
 from common.agent_templates import AgentTemplates, AGENT_AUDIO_SAMPLE_RATE
 from common.config import (
     FILLER_MESSAGES, FILLER_THRESHOLD_SECONDS, CORS_ALLOWED_ORIGINS, WEB_PORT,
-    DEFAULT_VOICE_MODEL, DEFAULT_VOICE_NAME,
+    DEFAULT_VOICE_MODEL, DEFAULT_VOICE_NAME, TWILIO_PHONE_NUMBER,
 )
 import logging
 from logging.handlers import RotatingFileHandler
@@ -800,6 +801,32 @@ def index():
 def audio_devices():
     devices = get_audio_devices()
     return {"devices": devices}
+
+
+@app.route("/register-caller", methods=["POST"])
+def register_caller():
+    """Register a phone number so an inbound call is greeted by name.
+
+    Unverified by design (no OTP), so a match only personalizes the greeting;
+    nothing is gated on it. Registrations self-expire, see common/callers.py.
+    """
+    data = request.get_json(silent=True) or {}
+    phone, error = callers.register(data.get("phone"), data.get("name"))
+    if error:
+        return jsonify({"error": error}), 400
+    return jsonify({
+        "registered": phone[:-4] + "****",
+        "name": (data.get("name") or "").strip()[:40],
+        "expires_in_hours": callers.REGISTRATION_TTL_HOURS,
+        "call": TWILIO_PHONE_NUMBER,
+    })
+
+
+@app.route("/forget-caller", methods=["POST"])
+def forget_caller():
+    """Drop a registration on request."""
+    data = request.get_json(silent=True) or {}
+    return jsonify({"forgotten": callers.forget(data.get("phone"))})
 
 
 @app.route("/tts-models")

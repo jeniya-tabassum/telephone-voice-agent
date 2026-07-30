@@ -557,3 +557,22 @@ details[open] > summary .chevron { transform: rotate(180deg); }
     .sidebar { width: 100%; }
     .header-title, .header-divider { display: none; }
 }
+
+/* caller registration inputs (sidebar) */
+
+.device-select input {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font: inherit;
+    width: 100%;
+}
+
+.device-select input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.cta-button:disabled { opacity: 0.6; cursor: default; }

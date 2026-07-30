@@ -29,12 +29,14 @@ import random
 import time
 import uuid
 from logging.handlers import RotatingFileHandler
+from xml.sax.saxutils import quoteattr as _quoteattr
 
 import websockets
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response
 
+from common import callers
 from common.agent_functions import FUNCTION_MAP, create_voice_state
 from common.agent_templates import AgentTemplates, build_listen_settings
 from common.config import (
@@ -128,8 +130,10 @@ class VoiceAgentSession:
     # the goodbye.
     FAREWELL_MARK = "farewell-played"
 
-    def __init__(self, twilio_ws: WebSocket, stream_sid: str, call_sid: str):
+    def __init__(self, twilio_ws: WebSocket, stream_sid: str, call_sid: str,
+                 caller_name: str = ""):
         self.twilio_ws = twilio_ws
+        self.caller_name = caller_name
         self.stream_sid = stream_sid
         self.call_sid = call_sid or "unknown"
         # Must be unique per stream: without a callSid two concurrent calls
@@ -169,7 +173,7 @@ class VoiceAgentSession:
         Caller audio buffers in the Twilio websocket until run() starts
         reading it, so nothing said during setup is lost.
         """
-        agent_templates = AgentTemplates()
+        agent_templates = AgentTemplates(callerName=self.caller_name)
         agent_config = agent_templates.settings["agent"]
         agent_config["listen"] = build_listen_settings(TWILIO_STT_MODEL)
         settings = {
@@ -567,6 +571,7 @@ async def health():
         "active_calls": len(active_sessions),
         "signature_validation": bool(_twilio_validator),
         "webhook_secret": bool(WEBHOOK_SECRET),
+        "registered_callers": callers.count(),
     }
 
 
@@ -580,13 +585,31 @@ async def _twilio_voice(request: Request, token: str | None) -> Response:
     host = SERVER_EXTERNAL_URL.replace("https://", "").replace("http://", "").rstrip("/")
     media_path = f"/twilio/media/{WEBHOOK_SECRET}" if WEBHOOK_SECRET else "/twilio/media"
     stream_url = f"wss://{host}{media_path}"
+
+    # The caller's number only arrives on this webhook, not on the media stream,
+    # so hand it to the stream as a custom parameter. Resolve the display name
+    # here too, so the personal data stays out of the websocket handshake.
+    form = await request.form()
+    caller_number = form.get("From", "")
+    caller_name = callers.lookup(caller_number) or ""
+    params = ""
+    if caller_name:
+        params = (
+            '\n            <Parameter name="callerName" '
+            f"value={_quoteattr(caller_name)}/>"
+        )
+
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="{stream_url}" />
+        <Stream url="{stream_url}">{params}
+        </Stream>
     </Connect>
 </Response>"""
-    logger.info(f"Incoming call - streaming to {stream_url}")
+    logger.info(
+        f"Incoming call{f' from {caller_name}' if caller_name else ''} "
+        f"- streaming to {stream_url}"
+    )
     return Response(content=twiml, media_type="text/xml")
 
 
@@ -618,17 +641,20 @@ async def _twilio_media(websocket: WebSocket, token: str | None):
     # Twilio sends "connected" then "start" before any media; wait for start
     # so the session has its stream/call SIDs from the beginning.
     stream_sid = call_sid = None
+    caller_name = ""
     try:
         while stream_sid is None:
             data = json.loads(await websocket.receive_text())
             if data.get("event") == "start":
-                stream_sid = data["start"]["streamSid"]
-                call_sid = data["start"].get("callSid")
+                start = data["start"]
+                stream_sid = start["streamSid"]
+                call_sid = start.get("callSid")
+                caller_name = (start.get("customParameters") or {}).get("callerName", "")
     except (WebSocketDisconnect, Exception) as e:
         logger.info(f"Stream closed before start event: {e}")
         return
 
-    session = VoiceAgentSession(websocket, stream_sid, call_sid)
+    session = VoiceAgentSession(websocket, stream_sid, call_sid, caller_name)
     active_sessions[session.session_key] = session
     session._log(f"Stream started: {stream_sid}")
 
