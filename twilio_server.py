@@ -118,6 +118,11 @@ class VoiceAgentSession:
 
     SETTINGS_TIMEOUT_SECONDS = 5.0
     FAREWELL_TIMEOUT_SECONDS = 12.0
+    # How long to let the model produce its own goodbye before falling back to
+    # the scripted one. Only a silent model should ever hit this.
+    FAREWELL_GRACE_SECONDS = 2.5
+    # Audio idle gap that means the goodbye finished generating.
+    FAREWELL_IDLE_SECONDS = 1.0
     # Twilio echoes a mark back only once it has finished PLAYING everything
     # queued ahead of it, which is the only real signal that the caller heard
     # the goodbye.
@@ -141,6 +146,7 @@ class VoiceAgentSession:
         self.filler_lock = asyncio.Lock()
         self._farewell_pending = False
         self._farewell_audio_seen = False
+        self._farewell_last_audio = None
         self._tasks: set[asyncio.Task] = set()
         self._cleanup_done = False
 
@@ -253,6 +259,47 @@ class VoiceAgentSession:
         if self._farewell_pending:
             self._log("Farewell timed out - hanging up", logging.WARNING)
             await self._finish_farewell()
+
+    async def _farewell_watcher(self):
+        """Mark the end of the goodbye once its audio stops arriving.
+
+        AgentAudioDone is not reliably delivered for the closing utterance, so
+        generation-finished is inferred from the audio going idle. The mark is
+        what Twilio echoes back after playing everything queued, which is the
+        only real signal the caller heard the goodbye.
+        """
+        while self._farewell_pending:
+            await asyncio.sleep(0.25)
+            idle_since = self._farewell_last_audio
+            if not idle_since:
+                continue
+            if time.monotonic() - idle_since >= self.FAREWELL_IDLE_SECONDS:
+                self._log("Goodbye finished generating - waiting for Twilio playback")
+                try:
+                    await self.twilio_ws.send_json({
+                        "event": "mark",
+                        "streamSid": self.stream_sid,
+                        "mark": {"name": self.FAREWELL_MARK},
+                    })
+                except Exception as e:
+                    self._log(f"Could not mark farewell: {e}", logging.ERROR)
+                    await self._finish_farewell()
+                return
+
+    async def _farewell_grace(self, fallback_message):
+        """Speak the scripted goodbye only if the model produced none.
+
+        The model answers the end_call function result with its own goodbye, so
+        injecting one unconditionally made the caller hear two. This keeps the
+        scripted line purely as insurance against hanging up on silence.
+        """
+        await asyncio.sleep(self.FAREWELL_GRACE_SECONDS)
+        if self._farewell_pending and not self._farewell_audio_seen:
+            self._log("No goodbye from the model - injecting scripted farewell")
+            try:
+                await self.dg_ws.send(json.dumps(fallback_message))
+            except Exception as e:
+                self._log(f"Farewell injection failed: {e}", logging.ERROR)
 
     # -- twilio -> deepgram -------------------------------------------------
 
@@ -383,14 +430,19 @@ class VoiceAgentSession:
                     "name": function_name,
                     "content": json.dumps(result["function_response"]),
                 }))
-                await self.dg_ws.send(json.dumps(result["inject_message"]))
-                self._log(f"Farewell: {result['inject_message']['message']}")
-
-                # Return to the receive loop so the goodbye audio keeps
-                # flowing to Twilio; the hangup happens on its AgentAudioDone
-                # (or the timeout below, if that never arrives).
+                # Return to the receive loop so the goodbye audio keeps flowing
+                # to Twilio; the hangup happens once Twilio confirms playback
+                # (or on the timeout below). The model speaks its own goodbye in
+                # reply to the function result, so nothing is injected here -
+                # doing both made the caller hear two farewells.
                 self._farewell_pending = True
                 self._farewell_audio_seen = False
+                self._farewell_last_audio = None
+                self._track(self._farewell_watcher(), name="farewell-watcher")
+                self._track(
+                    self._farewell_grace(result["inject_message"]),
+                    name="farewell-grace",
+                )
                 self._track(self._farewell_timeout(), name="farewell-timeout")
                 return
 
@@ -436,6 +488,7 @@ class VoiceAgentSession:
                     })
                     if self._farewell_pending:
                         self._farewell_audio_seen = True
+                        self._farewell_last_audio = time.monotonic()
                     continue
 
                 msg = json.loads(message)
@@ -457,18 +510,10 @@ class VoiceAgentSession:
                 elif msg_type == "AgentAudioDone":
                     # Ignore a stale done for speech that preceded the
                     # farewell injection - the caller must hear the goodbye.
-                    if self._farewell_pending and self._farewell_audio_seen:
-                        # AgentAudioDone only means Deepgram finished
-                        # generating; Twilio still has the tail buffered and
-                        # plays it at realtime. Mark the end of the queue and
-                        # hang up when Twilio echoes it back, so the goodbye
-                        # is actually heard instead of cut off.
-                        self._log("Farewell generated - waiting for Twilio playback")
-                        await self.twilio_ws.send_json({
-                            "event": "mark",
-                            "streamSid": self.stream_sid,
-                            "mark": {"name": self.FAREWELL_MARK},
-                        })
+                    if self._farewell_pending:
+                        # _farewell_watcher owns the hangup; it infers the end
+                        # of the goodbye from the audio going idle, because this
+                        # event is not reliably sent for the closing utterance.
                         continue
                     if not self.filler_complete.is_set():
                         self.filler_complete.set()

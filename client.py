@@ -705,17 +705,34 @@ async def close_websocket_with_timeout(ws, timeout=5):
         logger.error(f"Error during websocket closure: {e}")
 
 
-async def wait_for_farewell_completion(ws, speaker, inject_message):
-    """Wait for the farewell message to be spoken completely by the agent."""
-    # Send the farewell message
-    await inject_agent_message(ws, inject_message)
+FAREWELL_GRACE_SECONDS = 2.5
 
-    # First wait for either AgentStartedSpeaking or matching ConversationText
+
+async def wait_for_farewell_completion(ws, speaker, inject_message):
+    """Let the agent finish saying goodbye, then return so the call can close.
+
+    The model answers the end_call function result with its own goodbye, so the
+    scripted line is injected only if it stays silent - sending both made the
+    user hear two farewells.
+    """
     speaking_started = False
+    injected = False
+    deadline = time.monotonic() + FAREWELL_GRACE_SECONDS
+
     while not speaking_started:
-        message = await ws.recv()
+        timeout = None if injected else max(0.05, deadline - time.monotonic())
+        try:
+            message = await asyncio.wait_for(ws.recv(), timeout=timeout)
+        except asyncio.TimeoutError:
+            # Nothing spoken within the grace period - fall back to the script.
+            logger.info("No goodbye from the model - injecting scripted farewell")
+            await inject_agent_message(ws, inject_message)
+            injected = True
+            continue
+
         if isinstance(message, bytes):
             await speaker.play(message)
+            speaking_started = True
             continue
 
         try:
@@ -724,7 +741,6 @@ async def wait_for_farewell_completion(ws, speaker, inject_message):
             if message_json.get("type") == "AgentStartedSpeaking" or (
                 message_json.get("type") == "ConversationText"
                 and message_json.get("role") == "assistant"
-                and message_json.get("content") == inject_message["message"]
             ):
                 speaking_started = True
         except json.JSONDecodeError:
