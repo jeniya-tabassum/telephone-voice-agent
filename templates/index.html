@@ -156,6 +156,8 @@
         let mediaStream;
         let processor;
         let microphone;
+        let micAnalyser = null;    // feeds the voice ring while listening
+        let outputAnalyser = null; // feeds the voice ring while the agent speaks
         
         function floatToInt16(float32) {
             const out = new Int16Array(float32.length);
@@ -237,6 +239,9 @@
                     }
                     
                     microphone = audioContext.createMediaStreamSource(mediaStream);
+                    micAnalyser = audioContext.createAnalyser();
+                    micAnalyser.fftSize = 1024;
+                    microphone.connect(micAnalyser);
                     
                     const bufferSize = 1024;
                     processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
@@ -288,6 +293,7 @@
             if (microphone) {
                 microphone.disconnect();
                 microphone = null;
+                micAnalyser = null;
             }
             if (mediaStream) {
                 mediaStream.getTracks().forEach(track => track.stop());
@@ -539,6 +545,8 @@
             try {
                 if (!audioOutputContext) {
                     audioOutputContext = new (window.AudioContext || window.webkitAudioContext)();
+                    outputAnalyser = audioOutputContext.createAnalyser();
+                    outputAnalyser.fftSize = 1024;
                     nextPlayTime = audioOutputContext.currentTime;
                 }
                 
@@ -572,6 +580,7 @@
                 
                 source.connect(gainNode);
                 gainNode.connect(audioOutputContext.destination);
+                if (outputAnalyser) gainNode.connect(outputAnalyser);
                 
                 const currentTime = audioOutputContext.currentTime;
                 const bufferDuration = audioBuffer.duration;
@@ -598,6 +607,7 @@
             }
             
             audioOutputSampleRate = 16000;
+            outputAnalyser = null;
         }
 
         socket.on('audio_output', (data) => {
@@ -684,6 +694,29 @@
                 applyTheme(isDarkMode);
             }
         });
+        // Voice ring (<deepgram-voice-ring>, static/vdui): "speaking" while agent audio is
+        // scheduled, "listening" otherwise; level is the RMS of the matching analyser, 0..1.
+        const ring = document.getElementById('ring');
+        const ringSamples = new Uint8Array(1024);
+        let ringState = ring ? ring.getAttribute('state') : null;
+        function analyserLevel(analyser) {
+            if (!analyser) return 0;
+            analyser.getByteTimeDomainData(ringSamples);
+            let sum = 0;
+            for (const v of ringSamples) sum += ((v - 128) / 128) ** 2;
+            return Math.min(1, Math.sqrt(sum / ringSamples.length) * 4);
+        }
+        function tickRing() {
+            const speaking = isActive && !!audioOutputContext && nextPlayTime > audioOutputContext.currentTime;
+            const state = speaking ? 'speaking' : 'listening';
+            if (state !== ringState) {
+                ring.setAttribute('state', state);
+                ringState = state;
+            }
+            ring.level = speaking ? analyserLevel(outputAnalyser) : (isActive ? analyserLevel(micAnalyser) : 0);
+            requestAnimationFrame(tickRing);
+        }
+        if (ring) tickRing();
     </script>
 </body>
 </html>
