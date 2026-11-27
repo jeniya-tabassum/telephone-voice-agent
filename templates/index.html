@@ -1,44 +1,52 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" data-theme="dark">
     <head>
         <meta charset="utf-8">
-        <title>Deepgram Voice Agent</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Deepgram voice agent</title>
+        <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='vdui/logos/deepgram-favicon.svg') }}">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+        <link rel="stylesheet" href="{{ url_for('static', filename='vdui/brand.css') }}">
         <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+        <script src="{{ url_for('static', filename='vdui/ring-element/deepgram-voice-ring.js') }}"></script>
     </head>
 <body>
     <div class="main-container">
-        <div class="sidebar">
-            <h2>Deepgram Voice Agent</h2>
-            <button id="startButton" class="mic-button">Start Voice Agent</button>
-            <div id="status" class="status">Microphone: Not active</div>
-            <div class="audio-controls">
+        <aside class="sidebar stage-glow">
+            <header class="brand">
+                <img class="brand-logo" src="{{ url_for('static', filename='vdui/logos/deepgram.svg') }}" alt="Deepgram">
+                <h1 class="label brand-kicker">Voice agent</h1>
+            </header>
+            <deepgram-voice-ring id="ring" class="ring" state="listening" aria-hidden="true"></deepgram-voice-ring>
+            <button id="startButton" class="mic-button label">Start voice agent</button>
+            <div id="status" class="status" role="status" aria-live="polite">Microphone: Not active</div>
+            <section class="side-panel glass audio-controls">
                 <div class="device-select">
-                    <label for="inputDevice">Input Device:</label>
+                    <label for="inputDevice" class="label">Input device</label>
                     <select id="inputDevice"></select>
                 </div>
-            </div>
-            <div class="controls">
-                <label class="toggle">
-                    <input type="checkbox" id="showLogs">
-                    <span class="toggle-label">Show Logs</span>
-                </label>
-                <label class="toggle">
-                    <input type="checkbox" id="darkMode" checked>
-                    <span class="toggle-label">Dark Mode</span>
-                </label>
-            </div>
-        </div>
-        <div class="columns-container">
-            <div id="conversation" class="timeline column">
-                <h2>Conversation</h2>
+                <div class="controls">
+                    <label class="toggle">
+                        <input type="checkbox" id="showLogs">
+                        <span class="toggle-label">Show logs</span>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" id="darkMode" checked>
+                        <span class="toggle-label">Dark mode</span>
+                    </label>
+                </div>
+            </section>
+        </aside>
+        <main class="columns-container">
+            <section id="conversation" class="timeline column card">
+                <h2 class="label">Conversation</h2>
                 <div id="conversationMessages"></div>
-            </div>
-            <div id="logs" class="timeline column">
-                <h2>Logs</h2>
+            </section>
+            <section id="logs" class="timeline column card">
+                <h2 class="label">Logs</h2>
                 <div id="logMessages"></div>
-            </div>
-        </div>
+            </section>
+        </main>
     </div>
 
     <script>
@@ -127,7 +135,7 @@
                         browserAudio: true
                     });
                     
-                    startButton.textContent = 'Stop Voice Agent';
+                    startButton.textContent = 'Stop voice agent';
                     statusDiv.textContent = 'Microphone: Active';
                     isActive = true;
                 } catch (err) {
@@ -138,7 +146,7 @@
             } else {
                 socket.emit('stop_voice_agent');
                 stopAudioCapture();
-                startButton.textContent = 'Start Voice Agent';
+                startButton.textContent = 'Start voice agent';
                 statusDiv.textContent = 'Microphone: Not active';
                 isActive = false;
             }
@@ -148,6 +156,8 @@
         let mediaStream;
         let processor;
         let microphone;
+        let micAnalyser = null;    // feeds the voice ring while listening
+        let outputAnalyser = null; // feeds the voice ring while the agent speaks
         
         function floatToInt16(float32) {
             const out = new Int16Array(float32.length);
@@ -229,6 +239,9 @@
                     }
                     
                     microphone = audioContext.createMediaStreamSource(mediaStream);
+                    micAnalyser = audioContext.createAnalyser();
+                    micAnalyser.fftSize = 1024;
+                    microphone.connect(micAnalyser);
                     
                     const bufferSize = 1024;
                     processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
@@ -280,6 +293,7 @@
             if (microphone) {
                 microphone.disconnect();
                 microphone = null;
+                micAnalyser = null;
             }
             if (mediaStream) {
                 mediaStream.getTracks().forEach(track => track.stop());
@@ -410,13 +424,13 @@
             logDiv.dataset.messageId = currentCounter;
 
             let html = '<div class="latency-breakdown">';
-            html += '<div class="latency-title">Latency Breakdown</div>';
+            html += '<div class="latency-title label">Latency breakdown</div>';
 
             if (data.stt !== undefined) {
                 html += `<div class="latency-row"><span>STT</span><span class="latency-value">${data.stt}ms</span></div>`;
             }
             if (data.llm_think !== undefined) {
-                html += `<div class="latency-row"><span>LLM Think</span><span class="latency-value">${data.llm_think}ms</span></div>`;
+                html += `<div class="latency-row"><span>LLM think</span><span class="latency-value">${data.llm_think}ms</span></div>`;
             }
             if (data.function !== undefined) {
                 const fname = data.function_name || 'function';
@@ -432,7 +446,7 @@
                 html += `<div class="latency-row"><span>TTS</span><span class="latency-value">${data.tts}ms</span></div>`;
             }
             if (data.total !== undefined) {
-                const color = data.total < 2000 ? '#4caf50' : data.total < 4000 ? '#ff9800' : '#f44336';
+                const color = data.total < 2000 ? 'var(--latency-good)' : data.total < 4000 ? 'var(--latency-warn)' : 'var(--latency-bad)';
                 html += `<div class="latency-row latency-total"><span>Total</span><span class="latency-value" style="color:${color}">${data.total}ms</span></div>`;
             }
             html += '</div>';
@@ -460,20 +474,22 @@
         }
 
         function convertAnsiToHtml(text) {
+            // Log colors are CSS variables (static/style.css) so they follow the brand
+            // palette and the page's theme; both sets point at the same variables.
             const ansiToHtml = {
                 dark: {
-                    '[38;5;231m': 'color: #fff;',
-                    '[38;5;116m': 'color: #87d7d7;',
-                    '[38;5;114m': 'color: #87d787;',
-                    '[38;5;183m': 'color: #d7afff;',
-                    '[38;5;186m': 'color: #d7d787;',
+                    '[38;5;231m': 'color: var(--log-default);',
+                    '[38;5;116m': 'color: var(--log-user);',
+                    '[38;5;114m': 'color: var(--log-agent);',
+                    '[38;5;183m': 'color: var(--log-function);',
+                    '[38;5;186m': 'color: var(--log-latency);',
                 },
                 light: {
-                    '[38;5;231m': 'color: #000;',
-                    '[38;5;116m': 'color: #0086b3;',
-                    '[38;5;114m': 'color: #008744;',
-                    '[38;5;183m': 'color: #8b3d90;',
-                    '[38;5;186m': 'color: #b36d00;',
+                    '[38;5;231m': 'color: var(--log-default);',
+                    '[38;5;116m': 'color: var(--log-user);',
+                    '[38;5;114m': 'color: var(--log-agent);',
+                    '[38;5;183m': 'color: var(--log-function);',
+                    '[38;5;186m': 'color: var(--log-latency);',
                 },
                 '[0m': ''
             };
@@ -502,7 +518,7 @@
         socket.on('disconnect', () => {
             console.log('Disconnected from server');
             isActive = false;
-            startButton.textContent = 'Start Voice Agent';
+            startButton.textContent = 'Start voice agent';
             statusDiv.textContent = 'Microphone: Not active';
             stopAudioCapture();
         });
@@ -510,7 +526,7 @@
         socket.on('voice_agent_ended', () => {
             console.log('Voice agent call ended');
             isActive = false;
-            startButton.textContent = 'Start Voice Agent';
+            startButton.textContent = 'Start voice agent';
             statusDiv.textContent = 'Call ended';
             stopAudioCapture();
         });
@@ -529,6 +545,8 @@
             try {
                 if (!audioOutputContext) {
                     audioOutputContext = new (window.AudioContext || window.webkitAudioContext)();
+                    outputAnalyser = audioOutputContext.createAnalyser();
+                    outputAnalyser.fftSize = 1024;
                     nextPlayTime = audioOutputContext.currentTime;
                 }
                 
@@ -562,6 +580,7 @@
                 
                 source.connect(gainNode);
                 gainNode.connect(audioOutputContext.destination);
+                if (outputAnalyser) gainNode.connect(outputAnalyser);
                 
                 const currentTime = audioOutputContext.currentTime;
                 const bufferDuration = audioBuffer.duration;
@@ -588,6 +607,7 @@
             }
             
             audioOutputSampleRate = 16000;
+            outputAnalyser = null;
         }
 
         socket.on('audio_output', (data) => {
@@ -645,10 +665,16 @@
 
         const darkModeToggle = document.getElementById('darkMode');
         
-        document.body.classList.toggle('dark-mode', darkModeToggle.checked);
+        // Theme: body.dark-mode for the page, data-theme on <html> for the kit's paper surface
+        function applyTheme(isDarkMode) {
+            document.body.classList.toggle('dark-mode', isDarkMode);
+            document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+        }
+
+        applyTheme(darkModeToggle.checked);
         
         darkModeToggle.addEventListener('change', () => {
-            document.body.classList.toggle('dark-mode', darkModeToggle.checked);
+            applyTheme(darkModeToggle.checked);
             localStorage.setItem('darkMode', darkModeToggle.checked);
             
             const logMsgs = document.querySelectorAll('.timeline-item.log-message');
@@ -665,9 +691,32 @@
             if (savedDarkMode !== null) {
                 const isDarkMode = savedDarkMode === 'true';
                 darkModeToggle.checked = isDarkMode;
-                document.body.classList.toggle('dark-mode', isDarkMode);
+                applyTheme(isDarkMode);
             }
         });
+        // Voice ring (<deepgram-voice-ring>, static/vdui): "speaking" while agent audio is
+        // scheduled, "listening" otherwise; level is the RMS of the matching analyser, 0..1.
+        const ring = document.getElementById('ring');
+        const ringSamples = new Uint8Array(1024);
+        let ringState = ring ? ring.getAttribute('state') : null;
+        function analyserLevel(analyser) {
+            if (!analyser) return 0;
+            analyser.getByteTimeDomainData(ringSamples);
+            let sum = 0;
+            for (const v of ringSamples) sum += ((v - 128) / 128) ** 2;
+            return Math.min(1, Math.sqrt(sum / ringSamples.length) * 4);
+        }
+        function tickRing() {
+            const speaking = isActive && !!audioOutputContext && nextPlayTime > audioOutputContext.currentTime;
+            const state = speaking ? 'speaking' : 'listening';
+            if (state !== ringState) {
+                ring.setAttribute('state', state);
+                ringState = state;
+            }
+            ring.level = speaking ? analyserLevel(outputAnalyser) : (isActive ? analyserLevel(micAnalyser) : 0);
+            requestAnimationFrame(tickRing);
+        }
+        if (ring) tickRing();
     </script>
 </body>
 </html>
