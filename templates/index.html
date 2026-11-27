@@ -3,51 +3,160 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Deepgram voice agent</title>
+        <title>Deepgram voice agent dashboard</title>
         <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='vdui/logos/deepgram-favicon.svg') }}">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
         <link rel="stylesheet" href="{{ url_for('static', filename='vdui/brand.css') }}">
         <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
         <script src="{{ url_for('static', filename='vdui/ring-element/deepgram-voice-ring.js') }}"></script>
     </head>
-<body>
-    <div class="main-container">
-        <aside class="sidebar stage-glow">
-            <header class="brand">
-                <img class="brand-logo" src="{{ url_for('static', filename='vdui/logos/deepgram.svg') }}" alt="Deepgram">
-                <h1 class="label brand-kicker">Voice agent</h1>
-            </header>
+<body class="dark-mode">
+    <header class="app-header">
+        <div class="brand"><img class="brand-logo" src="{{ url_for('static', filename='vdui/logos/deepgram.svg') }}" alt="Deepgram"></div>
+        <div class="header-center">
+            <div class="header-title">Voice agent dashboard</div>
+            <span class="header-divider">|</span>
+            <a class="pill-button" href="tel:+14153013720">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                Call +1 (415) 301-3720 &rarr;
+            </a>
+        </div>
+        <div class="segmented" id="viewToggle">
+            <button type="button" id="segTranscript" class="active">Transcript</button>
+            <button type="button" id="segLogs">+ Logs</button>
+        </div>
+    </header>
+
+    <div class="app-grid">
+        <aside class="panel sidebar">
             <deepgram-voice-ring id="ring" class="ring" state="listening" aria-hidden="true"></deepgram-voice-ring>
-            <button id="startButton" class="mic-button label">Start voice agent</button>
-            <div id="status" class="status" role="status" aria-live="polite">Microphone: Not active</div>
-            <section class="side-panel glass audio-controls">
-                <div class="device-select">
-                    <label for="inputDevice" class="label">Input device</label>
-                    <select id="inputDevice"></select>
+            <div class="status-card">
+                <span class="dot" id="statusDot"></span>
+                <span id="status" role="status" aria-live="polite">Microphone: Not active</span>
+            </div>
+
+            <div class="side-section">
+                <div class="side-label">Call in</div>
+                <a class="callin-number" href="tel:+14153013720">+1 (415) 301-3720</a>
+            </div>
+
+            <details class="side-details" id="registerDetails">
+                <summary>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                    Get a personal greeting
+                    <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                </summary>
+                <div class="details-body">
+                    <p class="guide-sub" style="margin:0;line-height:1.45">
+                        Register your number and {{ voice_name }} greets you by name when you
+                        call. Kept for 24 hours, then forgotten.
+                    </p>
+                    <div class="device-select">
+                        <label for="regName">Your name</label>
+                        <input id="regName" type="text" maxlength="40" placeholder="Jeniya"
+                               autocomplete="given-name">
+                    </div>
+                    <div class="device-select">
+                        <label for="regPhone">Phone number you'll call from</label>
+                        <input id="regPhone" type="tel" placeholder="(415) 555-0123"
+                               autocomplete="tel">
+                    </div>
+                    <button id="regSubmit" class="cta-button" style="font-size:13.5px;padding:10px">
+                        Register my number
+                    </button>
+                    <div id="regStatus" class="empty-hint" style="text-align:left"></div>
                 </div>
-                <div class="controls">
-                    <label class="toggle">
-                        <input type="checkbox" id="showLogs">
-                        <span class="toggle-label">Show logs</span>
-                    </label>
-                    <label class="toggle">
-                        <input type="checkbox" id="darkMode" checked>
-                        <span class="toggle-label">Dark mode</span>
-                    </label>
+            </details>
+
+            <div class="nav-item active">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M7 13l4-4 4 3 5-6"/></svg>
+                Live demo
+            </div>
+
+            <details class="side-details">
+                <summary>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    Settings
+                    <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                </summary>
+                <div class="details-body">
+                    <div class="device-select">
+                        <label for="inputDevice">Input device</label>
+                        <select id="inputDevice"></select>
+                    </div>
                 </div>
-            </section>
+            </details>
+
+            <details class="side-details" open>
+                <summary>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36z"/></svg>
+                    Demo guide
+                    <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                </summary>
+                <div class="details-body">
+                    <div class="guide-block">
+                        <div class="side-label"><span class="glyph">&#9673;</span> Scenario</div>
+                        <div class="guide-text">Deepgram docs &amp; product assistant</div>
+                        <div class="guide-sub">({{ voice_name }} &middot; Flux TTS)</div>
+                    </div>
+                    <div class="guide-block">
+                        <div class="side-label"><span class="glyph">&#128172;</span> Try saying</div>
+                        <div class="try-quote">"What is Deepgram?"</div>
+                        <div class="try-quote">"How much does Nova three cost per minute?"</div>
+                        <div class="try-quote">"Does Deepgram support Hindi?"</div>
+                        <div class="try-quote">"Switch to a British male voice"</div>
+                    </div>
+                    <div class="guide-block">
+                        <div class="side-label"><span class="glyph">&#9776;</span> Call flow</div>
+                        <ol class="guide-flow">
+                            <li>Greet caller</li>
+                            <li>Answer from Deepgram docs</li>
+                            <li>Escalate to expert search if needed</li>
+                            <li>Quote live pricing</li>
+                            <li>Say goodbye to end</li>
+                        </ol>
+                    </div>
+                    <div class="guide-block">
+                        <div class="side-label"><span class="glyph">&#9881;</span> Under the hood</div>
+                        <div class="guide-sub">Flux STT &middot; {{ voice_model }} &middot; GPT-4o &middot; hybrid docs RAG + live pricing via dg-token-relay</div>
+                    </div>
+                </div>
+            </details>
+
+            <div class="sidebar-footer">
+                <label class="toggle">
+                    <input type="checkbox" id="darkMode" checked>
+                    <span class="toggle-label">Dark mode</span>
+                </label>
+                <div class="live-indicator">
+                    <span class="dot" id="connDot"></span>
+                    <span>Live</span>
+                </div>
+            </div>
         </aside>
-        <main class="columns-container">
-            <section id="conversation" class="timeline column card">
-                <h2 class="label">Conversation</h2>
-                <div id="conversationMessages"></div>
-            </section>
-            <section id="logs" class="timeline column card">
-                <h2 class="label">Logs</h2>
-                <div id="logMessages"></div>
-            </section>
-        </main>
+
+        <section class="panel transcript-panel">
+            <div class="panel-head">Call transcript</div>
+            <div id="conversationMessages">
+                <div class="empty-state" id="emptyState">
+                    <div class="icon-circle">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                    </div>
+                    <h3>Talk to {{ voice_name }}</h3>
+                    <p>Start the voice agent and ask anything about Deepgram &mdash; products, pricing, or how to get started. Or dial the number on the left to try the phone path.</p>
+                    <button id="startButton" class="cta-button">Start voice agent</button>
+                    <div class="empty-hint">Headphones recommended to avoid echo.</div>
+                </div>
+            </div>
+        </section>
+
+        <aside class="panel" id="logs">
+            <div class="panel-head">Agent activity</div>
+            <div id="logMessages"></div>
+        </aside>
     </div>
+
+    <input type="checkbox" id="showLogs" style="display:none">
 
     <script>
         const socket = io();
@@ -58,32 +167,111 @@
         const showLogsToggle = document.getElementById('showLogs');
         const logsColumn = document.getElementById('logs');
         const inputSelect = document.getElementById('inputDevice');
-        
+        const emptyState = document.getElementById('emptyState');
+        const statusDot = document.getElementById('statusDot');
+        const connDot = document.getElementById('connDot');
+        const segTranscript = document.getElementById('segTranscript');
+        const segLogs = document.getElementById('segLogs');
+
         let isActive = false;
+        let micAnalyser = null;    // feeds the voice ring while listening
+        let outputAnalyser = null; // feeds the voice ring while the agent speaks
         let currentGroup = null;
         let lastMessageTimestamp = null;
         let messageCounter = 0;
         const messageHeights = new Map();
         const messageOrder = [];
-        // Default voice settings (can be changed via voice commands)
-        let currentVoiceModel = 'aura-2-thalia-en';
-        let currentVoiceName = 'Thalia';
+        // Default voice settings (server-rendered from config; can be changed via voice commands)
+        let currentVoiceModel = '{{ voice_model }}';
+        let currentVoiceName = '{{ voice_name }}';
         let lastLogElement = null;
+
+        // Collapse the hero card into a compact toolbar once conversation starts
+        function compactEmptyState() {
+            if (emptyState && !emptyState.classList.contains('compact')) {
+                emptyState.classList.add('compact');
+            }
+        }
+
+        // Status dot mirrors the status text the agent logic already writes
+        const statusObserver = new MutationObserver(() => {
+            const text = statusDiv.textContent || '';
+            statusDot.classList.remove('live', 'error');
+            if (/Active|Starting|granted|Initializing/i.test(text)) {
+                statusDot.classList.add('live');
+            } else if (/denied|Error|Failed/i.test(text)) {
+                statusDot.classList.add('error');
+            }
+        });
+        statusObserver.observe(statusDiv, { childList: true, characterData: true, subtree: true });
+
+        // Header segmented control drives the (hidden) logs checkbox
+        function setLogsVisible(visible) {
+            showLogsToggle.checked = visible;
+            showLogsToggle.dispatchEvent(new Event('change'));
+            segLogs.classList.toggle('active', visible);
+            segTranscript.classList.toggle('active', !visible);
+        }
+        segTranscript.addEventListener('click', () => setLogsVisible(false));
+        segLogs.addEventListener('click', () => setLogsVisible(!showLogsToggle.checked));
+
+        // Caller registration — a personal greeting on the phone path.
+        const regName = document.getElementById('regName');
+        const regPhone = document.getElementById('regPhone');
+        const regSubmit = document.getElementById('regSubmit');
+        const regStatus = document.getElementById('regStatus');
+
+        async function registerCaller() {
+            regStatus.textContent = '';
+            const name = regName.value.trim();
+            const phone = regPhone.value.trim();
+            if (!name || !phone) {
+                regStatus.textContent = 'Name and number are both needed.';
+                return;
+            }
+            regSubmit.disabled = true;
+            regSubmit.textContent = 'Registering...';
+            try {
+                const res = await fetch('/register-caller', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, phone })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    regStatus.textContent = data.error || 'Could not register that number.';
+                } else {
+                    regStatus.textContent =
+                        `Done — call ${data.call} from ${data.registered} and you'll be `
+                        + `greeted as ${data.name}. Forgotten in ${data.expires_in_hours}h.`;
+                }
+            } catch (err) {
+                regStatus.textContent = 'Network error, please retry.';
+            } finally {
+                regSubmit.disabled = false;
+                regSubmit.textContent = 'Register my number';
+            }
+        }
+
+        regSubmit.addEventListener('click', registerCaller);
+        regPhone.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') registerCaller();
+        });
 
         // Populate audio devices
         async function loadAudioDevices() {
             try {
                 inputSelect.innerHTML = '';
-                
+
                 const defaultOption = document.createElement('option');
                 defaultOption.value = "default";
                 defaultOption.text = "Default Device";
                 defaultOption.selected = true;
                 inputSelect.appendChild(defaultOption);
-                
+
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const audioInputDevices = devices.filter(device => device.kind === 'audioinput');
-                
+
                 audioInputDevices.forEach((device, index) => {
                     if (device.label) {
                         const option = document.createElement('option');
@@ -92,7 +280,7 @@
                         inputSelect.appendChild(option);
                     }
                 });
-                
+
                 if (audioInputDevices.filter(d => d.label).length === 0) {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     stream.getTracks().forEach(track => track.stop());
@@ -111,30 +299,30 @@
             if (!isActive) {
                 try {
                     statusDiv.textContent = 'Initializing audio capture...';
-                    
+
                     const hasPermission = await requestMicrophonePermission();
                     if (!hasPermission) {
                         statusDiv.textContent = 'Microphone permission denied';
                         alert('Microphone permission is required for the voice agent to work.');
                         return;
                     }
-                    
+
                     const captureStarted = await startAudioCapture();
                     if (!captureStarted) {
                         statusDiv.textContent = 'Failed to start audio capture';
                         alert('Failed to start audio capture. Please check your microphone settings.');
                         return;
                     }
-                    
+
                     statusDiv.textContent = 'Starting voice agent...';
-                    
+
                     socket.emit('start_voice_agent', {
                         inputDeviceId: inputSelect.value,
                         voiceModel: currentVoiceModel,
                         voiceName: currentVoiceName,
                         browserAudio: true
                     });
-                    
+
                     startButton.textContent = 'Stop voice agent';
                     statusDiv.textContent = 'Microphone: Active';
                     isActive = true;
@@ -156,9 +344,7 @@
         let mediaStream;
         let processor;
         let microphone;
-        let micAnalyser = null;    // feeds the voice ring while listening
-        let outputAnalyser = null; // feeds the voice ring while the agent speaks
-        
+
         function floatToInt16(float32) {
             const out = new Int16Array(float32.length);
             for (let i = 0; i < float32.length; i++) {
@@ -185,7 +371,7 @@
             }
             return out;
         }
-        
+
         async function requestMicrophonePermission() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -198,11 +384,11 @@
                 return false;
             }
         }
-        
+
         async function startAudioCapture() {
             try {
                 const deviceId = inputSelect.value;
-                
+
                 let stream;
                 try {
                     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -210,7 +396,7 @@
                     console.error('Error getting microphone permission:', permissionErr);
                     return false;
                 }
-                
+
                 try {
                     const audioConstraints = {
                         echoCancellation: true,
@@ -218,59 +404,59 @@
                         channelCount: 1,
                         sampleRate: { ideal: 16000 }
                     };
-                    
+
                     if (deviceId && deviceId !== 'default') {
                         audioConstraints.deviceId = { exact: deviceId };
                     }
-                    
+
                     mediaStream = await navigator.mediaDevices.getUserMedia({
                         audio: audioConstraints
                     });
-                    
+
                     try { stream.getTracks().forEach(track => track.stop()); } catch(_) {}
                 } catch (constraintErr) {
                     mediaStream = stream;
                 }
-                
+
                 try {
                     audioContext = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
                     if (audioContext.state === 'suspended') {
                         try { await audioContext.resume(); } catch (_) {}
                     }
-                    
+
                     microphone = audioContext.createMediaStreamSource(mediaStream);
                     micAnalyser = audioContext.createAnalyser();
                     micAnalyser.fftSize = 1024;
                     microphone.connect(micAnalyser);
-                    
+
                     const bufferSize = 1024;
                     processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
-                    
+
                     microphone.connect(processor);
                     const zeroGainNode = audioContext.createGain();
                     zeroGainNode.gain.value = 0.0;
                     processor.connect(zeroGainNode);
                     zeroGainNode.connect(audioContext.destination);
-                    
+
                     processor.onaudioprocess = function(e) {
                         if (!isActive) return;
-                        
+
                         const inputData = e.inputBuffer.getChannelData(0);
                         const inRate = audioContext.sampleRate;
-                        
+
                         let pcm16;
                         if (inRate !== 16000) {
                             pcm16 = resampleFloatToInt16_16k(inputData, inRate);
                         } else {
                             pcm16 = floatToInt16(inputData);
                         }
-                        
+
                         socket.emit('audio_data', {
                             audio: pcm16.buffer,
                             sampleRate: 16000
                         });
                     };
-                    
+
                     return true;
                 } catch (audioErr) {
                     console.error('Error setting up audio processing:', audioErr);
@@ -284,7 +470,7 @@
                 return false;
             }
         }
-        
+
         function stopAudioCapture() {
             if (processor) {
                 processor.disconnect();
@@ -293,8 +479,8 @@
             if (microphone) {
                 microphone.disconnect();
                 microphone = null;
-                micAnalyser = null;
             }
+            micAnalyser = null;
             if (mediaStream) {
                 mediaStream.getTracks().forEach(track => track.stop());
                 mediaStream = null;
@@ -327,16 +513,31 @@
             });
         }
 
+        function buildMessageDiv(data, currentCounter) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `timeline-item message ${data.role}`;
+
+            const roleChip = document.createElement('span');
+            roleChip.className = 'role-chip';
+            roleChip.textContent = data.role === 'assistant' ? currentVoiceName : data.role;
+
+            const content = document.createElement('span');
+            content.textContent = data.content;
+
+            messageDiv.appendChild(roleChip);
+            messageDiv.appendChild(content);
+            messageDiv.dataset.messageId = currentCounter;
+            return messageDiv;
+        }
+
         function addConversationMessage(data) {
             const timestamp = new Date().toISOString();
             const currentCounter = messageCounter++;
             messageOrder.push({ id: currentCounter, timestamp: timestamp, type: 'conversation' });
-            
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `timeline-item message ${data.role}`;
-            messageDiv.textContent = `${data.role}: ${data.content}`;
-            messageDiv.dataset.messageId = currentCounter;
-            
+
+            compactEmptyState();
+            const messageDiv = buildMessageDiv(data, currentCounter);
+
             insertTimelineItem(messageDiv, timestamp, conversationMessages);
 
             requestAnimationFrame(() => {
@@ -360,27 +561,25 @@
             const timestamp = data.timestamp || new Date().toISOString();
             const currentCounter = messageCounter++;
             messageOrder.push({ id: currentCounter, timestamp: timestamp, type: 'conversation' });
-            
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `timeline-item message ${data.role}`;
-            messageDiv.textContent = `${data.role}: ${data.content}`;
-            messageDiv.dataset.messageId = currentCounter;
-            
+
+            compactEmptyState();
+            const messageDiv = buildMessageDiv(data, currentCounter);
+
             insertTimelineItem(messageDiv, timestamp, conversationMessages);
-            
+
             requestAnimationFrame(() => {
                 const actualHeight = messageDiv.offsetHeight;
                 messageHeights.set(currentCounter, actualHeight);
-                
+
                 const logSpacer = createSpacer(actualHeight);
                 logSpacer.dataset.messageId = currentCounter;
                 insertTimelineItem(logSpacer, timestamp, logMessages);
-                
+
                 if (!showLogsToggle.checked) {
                     logSpacer.style.display = 'none';
                     logSpacer.style.height = '0';
                 }
-                
+
                 scrollToBottom();
             });
         });
@@ -388,28 +587,28 @@
         socket.on('log_message', (data) => {
             const currentCounter = messageCounter++;
             messageOrder.push({ id: currentCounter, timestamp: data.timestamp, type: 'log' });
-            
+
             const logDiv = document.createElement('div');
             logDiv.className = 'timeline-item log-message';
             logDiv.setAttribute('data-original-text', data.message);
             logDiv.innerHTML = convertAnsiToHtml(data.message);
             logDiv.dataset.messageId = currentCounter;
-            
+
             insertTimelineItem(logDiv, data.timestamp, logMessages);
-            
+
             requestAnimationFrame(() => {
                 const actualHeight = logDiv.offsetHeight;
                 messageHeights.set(currentCounter, actualHeight);
-                
+
                 const conversationSpacer = createSpacer(actualHeight);
                 conversationSpacer.dataset.messageId = currentCounter;
                 insertTimelineItem(conversationSpacer, data.timestamp, conversationMessages);
-                
+
                 if (!showLogsToggle.checked) {
                     conversationSpacer.style.display = 'none';
                     conversationSpacer.style.height = '0';
                 }
-                
+
                 scrollToBottom();
             });
         });
@@ -423,34 +622,59 @@
             logDiv.className = 'timeline-item log-message latency-card';
             logDiv.dataset.messageId = currentCounter;
 
-            let html = '<div class="latency-breakdown">';
-            html += '<div class="latency-title label">Latency breakdown</div>';
+            const breakdown = document.createElement('div');
+            breakdown.className = 'latency-breakdown';
+
+            const title = document.createElement('div');
+            title.className = 'latency-title';
+            title.textContent = 'Latency breakdown';
+            breakdown.appendChild(title);
+
+            // Built as nodes, not concatenated markup: function_name comes from
+            // the agent and must never be parsed as HTML
+            function addLatencyRow(label, value, extraClass, valueColor) {
+                const row = document.createElement('div');
+                row.className = extraClass ? `latency-row ${extraClass}` : 'latency-row';
+
+                const labelSpan = document.createElement('span');
+                labelSpan.textContent = label;
+
+                const valueSpan = document.createElement('span');
+                valueSpan.className = 'latency-value';
+                valueSpan.textContent = `${value}ms`;
+                if (valueColor) {
+                    valueSpan.style.color = valueColor;
+                }
+
+                row.appendChild(labelSpan);
+                row.appendChild(valueSpan);
+                breakdown.appendChild(row);
+            }
 
             if (data.stt !== undefined) {
-                html += `<div class="latency-row"><span>STT</span><span class="latency-value">${data.stt}ms</span></div>`;
+                addLatencyRow('STT', data.stt);
             }
             if (data.llm_think !== undefined) {
-                html += `<div class="latency-row"><span>LLM think</span><span class="latency-value">${data.llm_think}ms</span></div>`;
+                addLatencyRow('LLM think', data.llm_think);
             }
             if (data.function !== undefined) {
                 const fname = data.function_name || 'function';
-                html += `<div class="latency-row"><span>${fname}</span><span class="latency-value">${data.function}ms</span></div>`;
+                addLatencyRow(fname, data.function);
                 if (data.function_api !== undefined) {
-                    html += `<div class="latency-row latency-sub"><span>└ API call</span><span class="latency-value">${data.function_api}ms</span></div>`;
+                    addLatencyRow('└ API call', data.function_api, 'latency-sub');
                 }
             }
             if (data.llm_after_func !== undefined) {
-                html += `<div class="latency-row"><span>LLM (post-func)</span><span class="latency-value">${data.llm_after_func}ms</span></div>`;
+                addLatencyRow('LLM (post-func)', data.llm_after_func);
             }
             if (data.tts !== undefined) {
-                html += `<div class="latency-row"><span>TTS</span><span class="latency-value">${data.tts}ms</span></div>`;
+                addLatencyRow('TTS', data.tts);
             }
             if (data.total !== undefined) {
-                const color = data.total < 2000 ? 'var(--latency-good)' : data.total < 4000 ? 'var(--latency-warn)' : 'var(--latency-bad)';
-                html += `<div class="latency-row latency-total"><span>Total</span><span class="latency-value" style="color:${color}">${data.total}ms</span></div>`;
+                const color = data.total < 2000 ? 'var(--success)' : data.total < 4000 ? 'var(--warning)' : 'var(--danger)';
+                addLatencyRow('Total', data.total, 'latency-total', color);
             }
-            html += '</div>';
-            logDiv.innerHTML = html;
+            logDiv.appendChild(breakdown);
 
             insertTimelineItem(logDiv, timestamp, logMessages);
 
@@ -473,9 +697,16 @@
             container.appendChild(element);
         }
 
+        function escapeHtml(text) {
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        // Log colors are CSS variables (static/style.css) so they follow the brand
+        // palette and the page's theme; both sets point at the same variables.
         function convertAnsiToHtml(text) {
-            // Log colors are CSS variables (static/style.css) so they follow the brand
-            // palette and the page's theme; both sets point at the same variables.
             const ansiToHtml = {
                 dark: {
                     '[38;5;231m': 'color: var(--log-default);',
@@ -494,7 +725,9 @@
                 '[0m': ''
             };
 
-            let html = text.replace(/\[0m/g, '');
+            // Escape first: the ANSI wrapper below injects spans, so raw log
+            // text must never reach innerHTML as markup
+            let html = escapeHtml(text).replace(/\[0m/g, '');
             const isDarkMode = document.body.classList.contains('dark-mode');
             const colorSet = isDarkMode ? ansiToHtml.dark : ansiToHtml.light;
 
@@ -513,16 +746,18 @@
 
         socket.on('connect', () => {
             console.log('Connected to server');
+            connDot.classList.add('live');
         });
 
         socket.on('disconnect', () => {
             console.log('Disconnected from server');
+            connDot.classList.remove('live');
             isActive = false;
             startButton.textContent = 'Start voice agent';
             statusDiv.textContent = 'Microphone: Not active';
             stopAudioCapture();
         });
-        
+
         socket.on('voice_agent_ended', () => {
             console.log('Voice agent call ended');
             isActive = false;
@@ -534,61 +769,61 @@
         socket.on('error', (error) => {
             console.error('Socket error:', error);
         });
-        
+
         // Audio output
         let audioOutputContext = null;
         let nextPlayTime = 0;
         let audioOutputSampleRate = 16000;
         let lastSeq = -1;
-        
+
         function playAudioOutput(audioData, sampleRate) {
             try {
                 if (!audioOutputContext) {
                     audioOutputContext = new (window.AudioContext || window.webkitAudioContext)();
+                    nextPlayTime = audioOutputContext.currentTime;
                     outputAnalyser = audioOutputContext.createAnalyser();
                     outputAnalyser.fftSize = 1024;
-                    nextPlayTime = audioOutputContext.currentTime;
                 }
-                
+
                 if (sampleRate) {
                     audioOutputSampleRate = sampleRate;
                 }
-                
+
                 const pcmData = new Int16Array(audioData);
                 const floatData = new Float32Array(pcmData.length);
-                
+
                 for (let i = 0; i < pcmData.length; i++) {
                     floatData[i] = pcmData[i] / 32768.0;
                 }
-                
+
                 const audioBuffer = audioOutputContext.createBuffer(1, floatData.length, audioOutputSampleRate);
                 audioBuffer.getChannelData(0).set(floatData);
-                
+
                 scheduleAudioBuffer(audioBuffer);
             } catch (err) {
                 console.error('Error processing audio output:', err);
             }
         }
-        
+
         function scheduleAudioBuffer(audioBuffer) {
             try {
                 const source = audioOutputContext.createBufferSource();
                 source.buffer = audioBuffer;
-                
+
                 const gainNode = audioOutputContext.createGain();
                 gainNode.gain.value = 1.0;
-                
+
                 source.connect(gainNode);
                 gainNode.connect(audioOutputContext.destination);
                 if (outputAnalyser) gainNode.connect(outputAnalyser);
-                
+
                 const currentTime = audioOutputContext.currentTime;
                 const bufferDuration = audioBuffer.duration;
-                
+
                 if (nextPlayTime <= currentTime + 0.03) {
                     nextPlayTime = currentTime + 0.03;
                 }
-                
+
                 source.start(nextPlayTime);
                 nextPlayTime += bufferDuration;
             } catch (err) {
@@ -596,18 +831,18 @@
                 nextPlayTime = audioOutputContext.currentTime;
             }
         }
-        
+
         function stopAudioOutput() {
             nextPlayTime = 0;
+            outputAnalyser = null;
             lastSeq = -1;
-            
+
             if (audioOutputContext && audioOutputContext.state !== 'closed') {
                 audioOutputContext.close();
                 audioOutputContext = null;
             }
-            
+
             audioOutputSampleRate = 16000;
-            outputAnalyser = null;
         }
 
         socket.on('audio_output', (data) => {
@@ -664,7 +899,7 @@
         logsColumn.style.display = showLogsToggle.checked ? 'flex' : 'none';
 
         const darkModeToggle = document.getElementById('darkMode');
-        
+
         // Theme: body.dark-mode for the page, data-theme on <html> for the kit's paper surface
         function applyTheme(isDarkMode) {
             document.body.classList.toggle('dark-mode', isDarkMode);
@@ -672,11 +907,11 @@
         }
 
         applyTheme(darkModeToggle.checked);
-        
+
         darkModeToggle.addEventListener('change', () => {
             applyTheme(darkModeToggle.checked);
             localStorage.setItem('darkMode', darkModeToggle.checked);
-            
+
             const logMsgs = document.querySelectorAll('.timeline-item.log-message');
             logMsgs.forEach(logMessage => {
                 const originalText = logMessage.getAttribute('data-original-text');
@@ -685,7 +920,7 @@
                 }
             });
         });
-        
+
         document.addEventListener('DOMContentLoaded', () => {
             const savedDarkMode = localStorage.getItem('darkMode');
             if (savedDarkMode !== null) {
@@ -694,8 +929,10 @@
                 applyTheme(isDarkMode);
             }
         });
+
         // Voice ring (<deepgram-voice-ring>, static/vdui): "speaking" while agent audio is
         // scheduled, "listening" otherwise; level is the RMS of the matching analyser, 0..1.
+        // Phone calls through Twilio don't reach this page, so it only follows browser sessions.
         const ring = document.getElementById('ring');
         const ringSamples = new Uint8Array(1024);
         let ringState = ring ? ring.getAttribute('state') : null;

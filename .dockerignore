@@ -1,0 +1,17 @@
+venv
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+logs
+.env
+deploy
+all_key.txt
+*.pem
+
+# Dev/test helpers — not part of the production image.
+test_*.py
+debug_*.py
+dev_client.py
+requirements-dev.txt
+test_phone_script.md

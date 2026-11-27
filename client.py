@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request, has_request_context
 from flask_socketio import SocketIO
 import pyaudio
 import asyncio
@@ -14,10 +14,15 @@ import audioop
 import random
 import requests
 from datetime import datetime
-from common.agent_functions import FUNCTION_MAP
+from common import callers
+from common.agent_functions import FUNCTION_MAP, create_voice_state
 from common.agent_templates import AgentTemplates, AGENT_AUDIO_SAMPLE_RATE
-from common.config import FILLER_MESSAGES, CORS_ALLOWED_ORIGINS, WEB_PORT
+from common.config import (
+    FILLER_MESSAGES, FILLER_THRESHOLD_SECONDS, CORS_ALLOWED_ORIGINS, WEB_PORT,
+    DEFAULT_VOICE_MODEL, DEFAULT_VOICE_NAME, TWILIO_PHONE_NUMBER,
+)
 import logging
+from logging.handlers import RotatingFileHandler
 from common.log_formatter import CustomFormatter
 
 
@@ -25,18 +30,50 @@ from common.log_formatter import CustomFormatter
 app = Flask(__name__, static_folder="./static", static_url_path="/")
 socketio = SocketIO(app, cors_allowed_origins=CORS_ALLOWED_ORIGINS)
 
+# Active VoiceAgent instances keyed by Socket.IO session id (flask.request.sid):
+# one Deepgram session per browser tab, never shared between visitors.
+voice_agents = {}
+_voice_agents_lock = threading.Lock()
+
+# Sid of the session an agent thread is serving, so logs raised off the request
+# thread can still be routed to the browser that caused them.
+_log_context = threading.local()
+
+
+def _current_sid():
+    sid = getattr(_log_context, "sid", None)
+    if sid:
+        return sid
+    if has_request_context():
+        return getattr(request, "sid", None)
+    return None
+
+
+class _ScopedLogEmitter:
+    """Stand-in for socketio handed to CustomFormatter, which emits log_message
+    through whatever object it is given. Routes each log to the session that
+    produced it; falls back to a broadcast when none is in scope (startup,
+    plain HTTP routes)."""
+
+    def emit(self, event, *args, **kwargs):
+        kwargs.setdefault("to", _current_sid())
+        socketio.emit(event, *args, **kwargs)
+
+
 # Configure logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # Console handler with colored output
 console_handler = logging.StreamHandler()
-console_handler.setFormatter(CustomFormatter(socketio=socketio))
+console_handler.setFormatter(CustomFormatter(socketio=_ScopedLogEmitter()))
 logger.addHandler(console_handler)
 
-# File handler for persistent logs
+# File handler for persistent logs (logs/ is a bind mount, so rotate it)
 os.makedirs("logs", exist_ok=True)
-file_handler = logging.FileHandler("logs/voice_agent.log")
+file_handler = RotatingFileHandler(
+    "logs/voice_agent.log", maxBytes=10 * 1024 * 1024, backupCount=3
+)
 file_handler.setFormatter(logging.Formatter(
     "%(asctime)s.%(msecs)03d %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
 ))
@@ -49,11 +86,13 @@ logging.getLogger().handlers = []
 class VoiceAgent:
     def __init__(
         self,
-        voiceModel="aura-2-thalia-en",
+        voiceModel=DEFAULT_VOICE_MODEL,
         voiceName="",
         language="en",
         browser_audio=False,
+        sid=None,
     ):
+        self.sid = sid
         self.mic_audio_queue = asyncio.Queue()
         self.speaker = None
         self.ws = None
@@ -65,12 +104,20 @@ class VoiceAgent:
         self.output_device_id = None
         self.browser_audio = browser_audio
         self.browser_output = browser_audio
+        self.ratecv_state = None
+        self.logged_first_chunk = False
+        self.voice_state = create_voice_state()
         self.agent_templates = AgentTemplates(
             voiceModel=voiceModel, voiceName=voiceName, language=language
         )
 
     def set_loop(self, loop):
         self.loop = loop
+
+    def emit(self, event, *args):
+        """Every client event is scoped to the session that started this agent;
+        a bare socketio.emit would broadcast to every connected tab."""
+        socketio.emit(event, *args, to=self.sid)
 
     async def setup(self):
         dg_api_key = os.environ.get("DEEPGRAM_API_KEY")
@@ -205,7 +252,7 @@ class VoiceAgent:
 
     async def receiver(self):
         try:
-            self.speaker = Speaker(browser_output=self.browser_output)
+            self.speaker = Speaker(browser_output=self.browser_output, sid=self.sid)
             last_user_message = None
             last_function_response_time = None
             in_function_chain = False
@@ -258,7 +305,7 @@ class VoiceAgent:
                     latency["total"] = round((ts["first_audio_byte_time"] - ts["user_text_time"]) * 1000)
 
                 if latency:
-                    socketio.emit("latency_update", latency)
+                    self.emit("latency_update", latency)
                     logger.info(f"Latency: {json.dumps(latency)}")
 
             # Filler message tracking: signals when injected filler has finished playing
@@ -283,7 +330,7 @@ class VoiceAgent:
                                 logger.info("Filler interrupted by user")
 
                         elif message_type == "ConversationText":
-                            socketio.emit("conversation_update", message_json)
+                            self.emit("conversation_update", message_json)
 
                             if message_json.get("role") == "user":
                                 last_user_message = current_time
@@ -302,6 +349,13 @@ class VoiceAgent:
                                 logger.info("Filler message finished playing")
                             elif turn_timestamps["user_text_time"]:
                                 emit_latency()
+
+                        elif message_type == "Warning":
+                            code = message_json.get("code", "")
+                            if code == "INJECT_AGENT_MESSAGE_DURING_AGENT_SPEECH":
+                                if not filler_complete.is_set():
+                                    filler_complete.set()
+                                    logger.info("Filler rejected (agent speaking), unblocking response")
 
                         elif message_type == "FunctionCalling":
                             if in_function_chain and last_function_response_time:
@@ -363,12 +417,12 @@ class VoiceAgent:
                                     logger.info(f"Sending ws close message")
                                     await close_websocket_with_timeout(self.ws)
                                     self.is_running = False
-                                    socketio.emit("voice_agent_ended")
+                                    self.emit("voice_agent_ended")
                                     break
 
                                 # switch_voice: no filler needed
                                 elif function_name == "switch_voice":
-                                    result = await func(self.ws, parameters)
+                                    result = await func(self.ws, parameters, voice_state=self.voice_state)
                                     logger.info(f"Voice switched to: {result.get('new_voice_name')}")
 
                                     execution_time = time.time() - start_time
@@ -385,16 +439,9 @@ class VoiceAgent:
                                     logger.info(f"Function response sent: {json.dumps(result)}")
                                     last_function_response_time = time.time()
 
-                                # All other functions (kapa_query, etc): inject filler, execute concurrently
+                                # All other functions (search_deepgram_docs, etc): execute
+                                # concurrently, speaking a filler only if it runs long
                                 else:
-                                    filler = random.choice(FILLER_MESSAGES)
-                                    filler_complete.clear()
-                                    await self.ws.send(json.dumps({
-                                        "type": "InjectAgentMessage",
-                                        "message": filler,
-                                    }))
-                                    logger.info(f"Filler injected: {filler}")
-
                                     # Capture variables for background task
                                     _func = func
                                     _params = parameters
@@ -402,40 +449,67 @@ class VoiceAgent:
                                     _call_name = function_name
                                     _start = start_time
 
-                                    async def execute_after_filler():
+                                    async def execute_with_filler():
                                         nonlocal last_function_response_time
+                                        call_task = asyncio.create_task(_func(_params))
+                                        done, _pending = await asyncio.wait(
+                                            {call_task}, timeout=FILLER_THRESHOLD_SECONDS
+                                        )
+
+                                        # Only detour into a filler for calls still
+                                        # running past the threshold; fast hybrid
+                                        # searches answer straight away.
+                                        used_filler = False
+                                        if not done:
+                                            filler = random.choice(FILLER_MESSAGES)
+                                            filler_complete.clear()
+                                            used_filler = True
+                                            try:
+                                                await self.ws.send(json.dumps({
+                                                    "type": "InjectAgentMessage",
+                                                    "message": filler,
+                                                }))
+                                                logger.info(
+                                                    f"Filler injected ({_call_name} > {FILLER_THRESHOLD_SECONDS}s): {filler}"
+                                                )
+                                            except Exception as e:
+                                                logger.error(f"Filler injection failed: {e}")
+                                                filler_complete.set()
+
                                         try:
-                                            result = await _func(_params)
+                                            result = await call_task
+                                        except Exception as e:
+                                            logger.error(f"Error in background function: {e}")
+                                            result = {"error": str(e)}
 
-                                            execution_time = time.time() - _start
-                                            logger.info(f"Function Execution Latency: {execution_time:.3f}s")
-                                            turn_timestamps["function_response_time"] = time.time()
-                                            if isinstance(result, dict) and "latency_seconds" in result:
-                                                turn_timestamps["function_api_latency"] = result["latency_seconds"]
+                                        execution_time = time.time() - _start
+                                        logger.info(f"Function Execution Latency: {execution_time:.3f}s")
+                                        turn_timestamps["function_response_time"] = time.time()
+                                        if isinstance(result, dict) and "latency_seconds" in result:
+                                            turn_timestamps["function_api_latency"] = result["latency_seconds"]
 
-                                            # Wait for filler to finish before sending response
+                                        if used_filler:
+                                            # Don't talk over our own filler; the
+                                            # receive loop sets the event on
+                                            # AgentAudioDone / barge-in / rejection.
                                             await filler_complete.wait()
 
-                                            response = {
-                                                "type": "FunctionCallResponse",
-                                                "id": _call_id,
-                                                "name": _call_name,
-                                                "content": json.dumps(result),
-                                            }
+                                        response = {
+                                            "type": "FunctionCallResponse",
+                                            "id": _call_id,
+                                            "name": _call_name,
+                                            "content": json.dumps(result),
+                                        }
+                                        try:
                                             await self.ws.send(json.dumps(response))
                                             logger.info(f"Function response sent: {json.dumps(result)}")
                                             last_function_response_time = time.time()
                                         except Exception as e:
-                                            logger.error(f"Error in background function: {e}")
-                                            error_response = {
-                                                "type": "FunctionCallResponse",
-                                                "id": _call_id,
-                                                "name": _call_name,
-                                                "content": json.dumps({"error": str(e)}),
-                                            }
-                                            await self.ws.send(json.dumps(error_response))
+                                            logger.error(
+                                                f"Failed to send FunctionCallResponse for {_call_name}: {e}"
+                                            )
 
-                                    pending_filler_task = asyncio.create_task(execute_after_filler())
+                                    pending_filler_task = asyncio.create_task(execute_with_filler())
 
                             except Exception as e:
                                 logger.error(f"Error executing function: {str(e)}")
@@ -475,10 +549,28 @@ class VoiceAgent:
             if not self.browser_audio:
                 stream, audio = await self.start_microphone()
 
-            await asyncio.gather(
-                self.sender(),
-                self.receiver(),
+            # Whichever pump finishes first ends the call: on end_call the
+            # receiver breaks out while the sender is still parked on
+            # mic_audio_queue.get(), and the browser stops streaming audio at
+            # that point, so gather() here would never return and the session
+            # would never be dropped from the registry.
+            pumps = [
+                asyncio.create_task(self.sender(), name="mic->dg"),
+                asyncio.create_task(self.receiver(), name="dg->browser"),
+            ]
+            done, pending = await asyncio.wait(
+                pumps, return_when=asyncio.FIRST_COMPLETED
             )
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            for task in done:
+                exc = task.exception()
+                if exc:
+                    raise exc
         except Exception as e:
             logger.error(f"Error in run: {e}")
         finally:
@@ -489,7 +581,7 @@ class VoiceAgent:
 
 
 class Speaker:
-    def __init__(self, agent_audio_sample_rate=None, browser_output=False):
+    def __init__(self, agent_audio_sample_rate=None, browser_output=False, sid=None):
         self._queue = None
         self._stream = None
         self._thread = None
@@ -498,6 +590,7 @@ class Speaker:
             agent_audio_sample_rate if agent_audio_sample_rate else 16000
         )
         self.browser_output = browser_output
+        self.sid = sid
 
     def __enter__(self):
         # Only initialize PyAudio for system audio output, not browser output
@@ -517,7 +610,13 @@ class Speaker:
         self._stop = threading.Event()
         self._thread = threading.Thread(
             target=_play,
-            args=(self._queue, self._stream, self._stop, self.browser_output),
+            args=(
+                self._queue,
+                self._stream,
+                self._stop,
+                self.browser_output,
+                self.sid,
+            ),
             daemon=True,
         )
         self._thread.start()
@@ -556,12 +655,14 @@ class Speaker:
         # If using browser output, instruct clients to stop playback immediately
         if self.browser_output and socketio:
             try:
-                socketio.emit("stop_audio_output")
+                socketio.emit("stop_audio_output", to=self.sid)
             except Exception as e:
                 logger.error(f"Error emitting stop_audio_output: {e}")
 
 
-def _play(audio_out, stream, stop, browser_output=False):
+def _play(audio_out, stream, stop, browser_output=False, sid=None):
+    # Scope this thread's logs and audio to the session being served
+    _log_context.sid = sid
     # Sequence counter for browser audio chunks
     seq = 0
     while not stop.is_set():
@@ -579,6 +680,7 @@ def _play(audio_out, stream, stop, browser_output=False):
                             "sampleRate": AGENT_AUDIO_SAMPLE_RATE,
                             "seq": seq,
                         },
+                        to=sid,
                     )
                     seq += 1
                 except Exception as e:
@@ -604,17 +706,34 @@ async def close_websocket_with_timeout(ws, timeout=5):
         logger.error(f"Error during websocket closure: {e}")
 
 
-async def wait_for_farewell_completion(ws, speaker, inject_message):
-    """Wait for the farewell message to be spoken completely by the agent."""
-    # Send the farewell message
-    await inject_agent_message(ws, inject_message)
+FAREWELL_GRACE_SECONDS = 2.5
 
-    # First wait for either AgentStartedSpeaking or matching ConversationText
+
+async def wait_for_farewell_completion(ws, speaker, inject_message):
+    """Let the agent finish saying goodbye, then return so the call can close.
+
+    The model answers the end_call function result with its own goodbye, so the
+    scripted line is injected only if it stays silent - sending both made the
+    user hear two farewells.
+    """
     speaking_started = False
+    injected = False
+    deadline = time.monotonic() + FAREWELL_GRACE_SECONDS
+
     while not speaking_started:
-        message = await ws.recv()
+        timeout = None if injected else max(0.05, deadline - time.monotonic())
+        try:
+            message = await asyncio.wait_for(ws.recv(), timeout=timeout)
+        except asyncio.TimeoutError:
+            # Nothing spoken within the grace period - fall back to the script.
+            logger.info("No goodbye from the model - injecting scripted farewell")
+            await inject_agent_message(ws, inject_message)
+            injected = True
+            continue
+
         if isinstance(message, bytes):
             await speaker.play(message)
+            speaking_started = True
             continue
 
         try:
@@ -623,7 +742,6 @@ async def wait_for_farewell_completion(ws, speaker, inject_message):
             if message_json.get("type") == "AgentStartedSpeaking" or (
                 message_json.get("type") == "ConversationText"
                 and message_json.get("role") == "assistant"
-                and message_json.get("content") == inject_message["message"]
             ):
                 speaking_started = True
         except json.JSONDecodeError:
@@ -672,13 +790,43 @@ def get_audio_devices():
 # Flask routes
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template(
+        "index.html",
+        voice_model=DEFAULT_VOICE_MODEL,
+        voice_name=DEFAULT_VOICE_NAME,
+    )
 
 
 @app.route("/audio-devices")
 def audio_devices():
     devices = get_audio_devices()
     return {"devices": devices}
+
+
+@app.route("/register-caller", methods=["POST"])
+def register_caller():
+    """Register a phone number so an inbound call is greeted by name.
+
+    Unverified by design (no OTP), so a match only personalizes the greeting;
+    nothing is gated on it. Registrations self-expire, see common/callers.py.
+    """
+    data = request.get_json(silent=True) or {}
+    phone, error = callers.register(data.get("phone"), data.get("name"))
+    if error:
+        return jsonify({"error": error}), 400
+    return jsonify({
+        "registered": phone[:-4] + "****",
+        "name": (data.get("name") or "").strip()[:40],
+        "expires_in_hours": callers.REGISTRATION_TTL_HOURS,
+        "call": TWILIO_PHONE_NUMBER,
+    })
+
+
+@app.route("/forget-caller", methods=["POST"])
+def forget_caller():
+    """Drop a registration on request."""
+    data = request.get_json(silent=True) or {}
+    return jsonify({"forgotten": callers.forget(data.get("phone"))})
 
 
 @app.route("/tts-models")
@@ -739,21 +887,47 @@ def get_tts_models():
         return jsonify({"error": str(e)}), 500
 
 
-voice_agent = None
+def _discard_agent(sid, agent):
+    """Drop a finished agent, unless the session already started a newer one."""
+    with _voice_agents_lock:
+        if voice_agents.get(sid) is agent:
+            del voice_agents[sid]
 
 
-def run_async_voice_agent():
+def _cancel_pending_tasks():
+    """Runs inside the agent's own loop, where all_tasks/cancel are safe."""
+    for task in asyncio.all_tasks():
+        task.cancel()
+
+
+def _teardown_agent(sid):
+    """Stop the agent for one session (explicit stop, or the tab going away)."""
+    with _voice_agents_lock:
+        agent = voice_agents.pop(sid, None)
+    if agent is None:
+        return
+    agent.is_running = False
+    loop = agent.loop
+    if loop and not loop.is_closed():
+        try:
+            loop.call_soon_threadsafe(_cancel_pending_tasks)
+        except RuntimeError as e:
+            logger.error(f"Error stopping voice agent: {e}")
+
+
+def run_async_voice_agent(agent, sid):
+    _log_context.sid = sid
     try:
         # Create a new event loop for this thread
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
         # Set the loop in the voice agent
-        voice_agent.set_loop(loop)
+        agent.set_loop(loop)
 
         try:
             # Run the voice agent
-            loop.run_until_complete(voice_agent.run())
+            loop.run_until_complete(agent.run())
         except asyncio.CancelledError:
             logger.info("Voice agent task was cancelled")
         except Exception as e:
@@ -777,54 +951,66 @@ def run_async_voice_agent():
                 loop.close()
     except Exception as e:
         logger.error(f"Error in voice agent thread setup: {e}")
+    finally:
+        # Free the session (end_call, error or cancellation) so the same tab
+        # can start a new call.
+        _discard_agent(sid, agent)
 
 
 @socketio.on("start_voice_agent")
 def handle_start_voice_agent(data=None):
-    global voice_agent
+    sid = request.sid
     logger.info(f"Starting voice agent with data: {data}")
-    if voice_agent is None:
-        voiceModel = (
-            data.get("voiceModel", "aura-2-thalia-en") if data else "aura-2-thalia-en"
-        )
-        # Get voice name from data or default to empty string, which uses the Model's voice name in the backend
-        voiceName = data.get("voiceName", "") if data else ""
-        # Get language from data or default to en (used in agent config)
-        language = data.get("language", "en") if data else "en"
-        # Check if browser is handling audio capture
-        browser_audio = data.get("browserAudio", False) if data else False
+    if sid in voice_agents:
+        logger.info("Voice agent already running for this session")
+        return
 
-        voice_agent = VoiceAgent(
-            voiceModel=voiceModel,
-            voiceName=voiceName,
-            language=language,
-            browser_audio=browser_audio,
-        )
-        if data:
-            voice_agent.input_device_id = data.get("inputDeviceId")
-            voice_agent.output_device_id = data.get("outputDeviceId")
-        # Start the voice agent in a native OS thread to isolate asyncio from eventlet
-        threading.Thread(target=run_async_voice_agent, daemon=True).start()
+    voiceModel = (
+        data.get("voiceModel", DEFAULT_VOICE_MODEL) if data else DEFAULT_VOICE_MODEL
+    )
+    # Get voice name from data or default to empty string, which uses the Model's voice name in the backend
+    voiceName = data.get("voiceName", "") if data else ""
+    # Get language from data or default to en (used in agent config)
+    language = data.get("language", "en") if data else "en"
+    # Check if browser is handling audio capture
+    browser_audio = data.get("browserAudio", False) if data else False
+
+    agent = VoiceAgent(
+        voiceModel=voiceModel,
+        voiceName=voiceName,
+        language=language,
+        browser_audio=browser_audio,
+        sid=sid,
+    )
+    if data:
+        agent.input_device_id = data.get("inputDeviceId")
+        agent.output_device_id = data.get("outputDeviceId")
+
+    with _voice_agents_lock:
+        if sid in voice_agents:
+            logger.info("Voice agent already running for this session")
+            return
+        voice_agents[sid] = agent
+
+    # Start the voice agent in a native OS thread to isolate asyncio from eventlet
+    threading.Thread(target=run_async_voice_agent, args=(agent, sid), daemon=True).start()
 
 
 @socketio.on("stop_voice_agent")
 def handle_stop_voice_agent():
-    global voice_agent
-    if voice_agent:
-        voice_agent.is_running = False
-        if voice_agent.loop and not voice_agent.loop.is_closed():
-            try:
-                # Cancel all running tasks
-                for task in asyncio.all_tasks(voice_agent.loop):
-                    task.cancel()
-            except Exception as e:
-                logger.error(f"Error stopping voice agent: {e}")
-        voice_agent = None
+    _teardown_agent(request.sid)
+
+
+@socketio.on("disconnect")
+def handle_disconnect(*_args):
+    # A closed tab would otherwise leak the agent thread, its event loop and
+    # the Deepgram websocket.
+    _teardown_agent(request.sid)
 
 
 @socketio.on("audio_data")
 def handle_audio_data(data):
-    global voice_agent
+    voice_agent = voice_agents.get(request.sid)
     if voice_agent and voice_agent.is_running and voice_agent.browser_audio:
         try:
             # Get the audio buffer and sample rate
@@ -842,7 +1028,7 @@ def handle_audio_data(data):
                         audio_bytes = audio_buffer.tobytes()
 
                         # Log detailed info about the first chunk
-                        if not hasattr(handle_audio_data, "first_log_done"):
+                        if not voice_agent.logged_first_chunk:
                             import numpy as np
 
                             # Peek at the data to verify it's in the right format
@@ -880,13 +1066,17 @@ def handle_audio_data(data):
                     resampled = False
                     if original_rate != 16000:
                         try:
-                            prev_state = getattr(
-                                handle_audio_data, "_ratecv_state", None
-                            )
+                            # Resampler state is per session, so two callers'
+                            # streams are never interleaved through it
                             audio_bytes, state = audioop.ratecv(
-                                audio_bytes, 2, 1, original_rate, 16000, prev_state
+                                audio_bytes,
+                                2,
+                                1,
+                                original_rate,
+                                16000,
+                                voice_agent.ratecv_state,
                             )
-                            handle_audio_data._ratecv_state = state
+                            voice_agent.ratecv_state = state
                             sample_rate = 16000
                             resampled = True
                         except Exception as e:
@@ -895,11 +1085,11 @@ def handle_audio_data(data):
                             )
 
                     # Log the first time we receive audio data
-                    if not hasattr(handle_audio_data, "first_log_done"):
+                    if not voice_agent.logged_first_chunk:
                         logger.info(
                             f"Received first browser audio chunk: in_len={original_len} bytes, in_rate={original_rate}Hz, out_len={len(audio_bytes)} bytes, out_rate={sample_rate}Hz, resampled={resampled}"
                         )
-                        handle_audio_data.first_log_done = True
+                        voice_agent.logged_first_chunk = True
 
                     # Put the audio data in the queue for processing
                     if voice_agent.loop and not voice_agent.loop.is_closed():
@@ -929,4 +1119,24 @@ if __name__ == "__main__":
     print("\nPress Ctrl+C to stop the server\n")
     print("=" * 60 + "\n")
 
-    socketio.run(app, host="0.0.0.0", port=WEB_PORT, debug=True, allow_unsafe_werkzeug=True)
+    # debug=True publishes Werkzeug's interactive debugger (remote code
+    # execution), so it is opt-in for local use only: FLASK_DEBUG=1 python client.py
+    debug = os.environ.get("FLASK_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+    run_options = {
+        "host": "0.0.0.0",
+        "port": WEB_PORT,
+        "debug": debug,
+        # Explicit, so a FLASK_DEBUG picked up later from .env by Flask.run()
+        # cannot re-enable the debugger or the subprocess reloader.
+        "use_debugger": debug,
+        "use_reloader": debug,
+    }
+    if socketio.async_mode == "threading" and not debug:
+        # No eventlet/gevent installed, so socketio.run() serves through
+        # Werkzeug and refuses to start non-interactively (Docker) without
+        # this flag. Install eventlet or gevent and socketio.run() uses that
+        # server instead, with no Werkzeug in the path. Withheld when debug is
+        # on so FLASK_DEBUG in a container fails loudly instead of exposing
+        # the debugger.
+        run_options["allow_unsafe_werkzeug"] = True
+    socketio.run(app, **run_options)

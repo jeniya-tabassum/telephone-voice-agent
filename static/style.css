@@ -1,354 +1,674 @@
-/*
- * Page layout on top of Deepgram's brand kit (static/vdui/brand.css).
- * Colors, fonts, and the label / card / glass / stage-glow utilities come from the kit;
- * use its tokens (var(--color-*)) here, never raw hex.
+/* Deepgram Voice Agent Dashboard
+ * Layout on top of Deepgram's brand kit (static/vdui/brand.css, loaded first).
+ * Colors and fonts come from the kit's tokens (var(--color-*), --font-sans/--font-mono);
+ * the page's own tokens below just name them. The Dark mode toggle sets data-theme on
+ * <html>, which flips the kit's paper surface, and body.dark-mode for this page.
  *
- * Surfaces: the sidebar is the stage (dark texture, glass panels, the voice ring); the
- * conversation and logs are cards on paper. The Dark mode toggle sets data-theme on
- * <html>, which flips the paper surface (see brand.css).
+ * Surfaces: the sidebar is the stage (dark texture, white text, the voice ring) in both
+ * themes; the header, transcript and logs are cards on paper.
  */
 
 :root {
-    /* Text on the stage is white in both themes, as in the kit (paper flips; the stage doesn't) */
-    --stage-text: white;
-    --stage-text-muted: rgb(255 255 255 / 0.72);
-    --stage-line: rgb(255 255 255 / 0.16);
-    --stage-fill: rgb(255 255 255 / 0.06);
+    --bg: var(--color-paper);
+    --panel: var(--color-card);
+    --card: color-mix(in srgb, var(--color-paper) 70%, var(--color-card));
+    --card-hover: color-mix(in srgb, var(--color-line) 60%, var(--color-card));
+    --border: var(--color-line);
+    --text: var(--color-fg);
+    --muted: var(--color-muted);
+    --pebble: var(--color-faint);
+    --primary: var(--color-magenta-2);
+    --primary-dim: color-mix(in srgb, var(--color-magenta) 12%, transparent);
+    --secondary: var(--color-violet);
+    --secondary-dim: color-mix(in srgb, var(--color-violet) 12%, transparent);
+    --danger: var(--color-red);
+    /* Light paper: darken the bright brand signals so text stays readable */
+    --warning: color-mix(in srgb, var(--color-orange) 75%, var(--color-ink));
+    --success: color-mix(in srgb, var(--color-lime) 50%, var(--color-ink));
+    --on-primary: var(--color-ink);
+    --radius: var(--radius-card);
+    --radius-sm: 0.75rem;
+    --sidebar-w: 19rem;
+    --aside-w: 24rem;
 
-    /* Log line colors (convertAnsiToHtml in index.html): readable on light paper */
+    /* Log line colors (convertAnsiToHtml in index.html) */
     --log-default: var(--color-fg);
     --log-user: color-mix(in srgb, var(--color-ring-blue) 60%, var(--color-ink));
     --log-agent: color-mix(in srgb, var(--color-lime) 50%, var(--color-ink));
     --log-function: var(--color-violet);
     --log-latency: color-mix(in srgb, var(--color-yellow) 40%, var(--color-ink));
 
-    /* Latency card total: good / slow / bad. Darkened on light paper for contrast */
-    --latency-good: color-mix(in srgb, var(--color-lime) 50%, var(--color-ink));
-    --latency-warn: color-mix(in srgb, var(--color-orange) 75%, var(--color-ink));
-    --latency-bad: var(--color-red);
+    /* Text on the stage is white in both themes, as in the kit (paper flips; the stage doesn't) */
+    --stage-text: white;
+    --stage-text-muted: rgb(255 255 255 / 0.72);
+    --stage-line: rgb(255 255 255 / 0.16);
+    --stage-fill: rgb(255 255 255 / 0.06);
 }
 
 :root[data-theme="dark"] {
+    --primary: var(--color-magenta);
+    --secondary: var(--color-violet-3);
+    --warning: var(--color-orange);
+    --success: var(--color-lime);
     --log-user: var(--color-ring-blue);
     --log-agent: var(--color-lime);
     --log-function: var(--color-violet-3);
     --log-latency: var(--color-yellow);
-    --latency-good: var(--color-lime);
-    --latency-warn: var(--color-orange);
 }
+
+* { box-sizing: border-box; }
 
 body {
+    font-family: var(--font-sans);
     margin: 0;
+    padding: 0;
     height: 100dvh;
     overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    transition: background-color 0.2s, color 0.2s;
+    font-size: 14px;
 }
 
-button,
-select,
-input {
-    font: inherit;
-}
+/* ---------------------------------------------------------------- header */
 
-.main-container {
+.app-header {
     display: flex;
-    height: 100dvh;
-}
-
-/* Sidebar: the stage */
-
-.sidebar {
-    width: 19rem;
-    flex: none;
-    color: var(--stage-text);
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    padding: 1.5rem 1.25rem;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--stage-line) transparent;
+    align-items: center;
+    gap: 20px;
+    margin: 12px 12px 0;
+    padding: 0 20px;
+    height: 64px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 }
 
 .brand {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    white-space: nowrap;
+}
+
+.header-center {
+    flex: 1;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: center;
+    gap: 16px;
+    min-width: 0;
 }
 
-.brand-logo {
-    width: 8.5rem;
-    height: auto;
+.header-title {
+    font-size: 20px;
+    font-weight: 700;
+    white-space: nowrap;
 }
 
-.brand-kicker {
-    margin: 0;
-    color: var(--stage-text-muted);
+.header-divider {
+    color: var(--pebble);
+    font-weight: 300;
+    font-size: 22px;
 }
 
-.ring {
-    display: block;
-    align-self: center;
-    width: 11rem;
-    height: 11rem;
-    flex: none;
-}
-
-.mic-button {
-    width: 100%;
-    padding: 0.875rem 1.25rem;
-    border: none;
+.pill-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
     border-radius: 999px;
-    background: var(--color-magenta);
-    color: var(--color-ink);
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--primary);
+    font-weight: 600;
+    font-size: 14px;
+    text-decoration: none;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: background-color 0.15s;
+    white-space: nowrap;
 }
 
-.mic-button:hover {
-    background: var(--color-magenta-2);
+.pill-button:hover { background: var(--card-hover); }
+
+.segmented {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--card);
 }
 
-.status {
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    line-height: 1.4;
-    text-align: center;
-    color: var(--stage-text-muted);
+.segmented button {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-weight: 600;
+    padding: 9px 18px;
+    cursor: pointer;
 }
 
-.side-panel {
+.segmented button.active {
+    background: var(--primary);
+    color: var(--on-primary);
+}
+
+/* ------------------------------------------------------------------ grid */
+
+.app-grid {
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+    height: calc(100vh - 76px);
+}
+
+.panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    padding: 1rem;
-    border-radius: 1.5rem;
+    overflow: hidden;
 }
+
+.panel-head {
+    padding: 16px 20px;
+    font-size: 17px;
+    font-weight: 700;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------- sidebar */
+
+.sidebar {
+    width: var(--sidebar-w);
+    flex-shrink: 0;
+    padding: 14px;
+    gap: 14px;
+    overflow-y: auto;
+}
+
+.status-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    color: var(--muted);
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--pebble);
+    flex-shrink: 0;
+}
+
+.dot.live {
+    background: var(--primary);
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.dot.error { background: var(--danger); }
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.side-section { flex-shrink: 0; }
 
 .side-label {
-    margin: 0;
-    color: var(--stage-text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 4px 2px 6px;
 }
 
-.device-select label {
+.callin-number {
     display: block;
-    margin-bottom: 0.375rem;
-    color: var(--stage-text-muted);
+    font-family: var(--font-mono);
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--primary);
+    text-decoration: none;
+    padding: 2px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 14px;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-weight: 600;
+    cursor: default;
+}
+
+.nav-item.active {
+    background: var(--primary-dim);
+    color: var(--primary);
+}
+
+.nav-item svg { flex-shrink: 0; }
+
+details.side-details { border-radius: var(--radius-sm); }
+
+details.side-details > summary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--text);
+}
+
+details.side-details > summary:hover { background: var(--card); }
+
+details.side-details > summary::-webkit-details-marker { display: none; }
+
+.chevron {
+    margin-left: auto;
+    transition: transform 0.15s;
+    color: var(--muted);
+}
+
+details[open] > summary .chevron { transform: rotate(180deg); }
+
+.details-body {
+    padding: 6px 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.guide-block { font-size: 13px; }
+
+.guide-block .side-label { margin-left: 0; display: flex; align-items: center; gap: 6px; }
+
+.guide-block .side-label .glyph { color: var(--warning); }
+
+.guide-text { color: var(--text); line-height: 1.45; }
+
+.guide-sub { color: var(--muted); }
+
+.try-quote {
+    color: var(--text);
+    line-height: 1.5;
+    margin: 3px 0;
+}
+
+.guide-flow {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text);
+    line-height: 1.7;
+}
+
+.device-select {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted);
 }
 
 .device-select select {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font: inherit;
     width: 100%;
-    box-sizing: border-box;
-    padding: 0.5rem 0.875rem;
-    border: 1px solid var(--stage-line);
-    border-radius: 999px;
-    background: var(--stage-fill);
-    color: var(--stage-text);
-    font-size: 0.875rem;
-    text-overflow: ellipsis;
-}
-
-.device-select select option {
-    background: var(--color-ink);
-    color: var(--stage-text);
-}
-
-.controls {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding-top: 0.25rem;
 }
 
 .toggle {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
     cursor: pointer;
     user-select: none;
-    font-size: 0.875rem;
 }
 
-.toggle input {
-    margin: 0;
-    width: 1rem;
-    height: 1rem;
-    accent-color: var(--color-magenta);
-}
-
-/* Conversation and logs: cards on paper */
-
-.columns-container {
-    flex: 1;
-    min-width: 0;
+.sidebar-footer {
+    margin-top: auto;
     display: flex;
-    gap: 1.25rem;
-    padding: 1.25rem;
-    box-sizing: border-box;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
 }
 
-.column {
+.live-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+/* ------------------------------------------------------------ transcript */
+
+.transcript-panel { flex: 1; min-width: 0; }
+
+#conversationMessages {
     flex: 1;
-    min-width: 0;
+    overflow-y: auto;
+    padding: 18px 20px;
     display: flex;
     flex-direction: column;
-    padding: 1.25rem 1rem 1rem 1.25rem;
-    overflow: hidden;
-    box-sizing: border-box;
+    gap: 10px;
 }
 
-.column h2 {
-    margin: 0 0 0.75rem;
-    color: var(--color-muted);
+.empty-state {
+    margin: auto;
+    max-width: 480px;
+    width: 90%;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px 36px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
 }
 
-#conversationMessages,
-#logMessages {
-    flex-grow: 1;
-    min-height: 0;
-    overflow-y: scroll;
-    scrollbar-gutter: stable;
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-line) transparent;
-    padding-right: 0.25rem;
+.empty-state .icon-circle {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--primary-dim);
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.timeline-item {
-    margin: 0.375rem 0;
-    min-height: 20px;
+.empty-state h3 {
+    margin: 4px 0 0;
+    font-size: 21px;
+    font-weight: 700;
 }
 
-.timeline-spacer {
-    margin: 0.375rem 0;
-    min-height: 0;
-    background: transparent;
+.empty-state p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.55;
+    font-size: 14px;
+}
+
+.cta-button {
+    appearance: none;
     border: none;
+    width: 100%;
+    padding: 13px 18px;
+    border-radius: 10px;
+    background: var(--primary);
+    color: var(--on-primary);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: filter 0.15s;
 }
+
+.cta-button:hover { filter: brightness(1.08); }
+
+.empty-hint { font-size: 12.5px; color: var(--muted); }
+
+/* compact mode once conversation starts */
+.empty-state.compact {
+    margin: 0;
+    max-width: none;
+    width: 100%;
+    flex-direction: row;
+    padding: 10px 14px;
+    gap: 12px;
+    border-radius: var(--radius-sm);
+}
+
+.empty-state.compact .icon-circle { width: 34px; height: 34px; }
+.empty-state.compact .icon-circle svg { width: 16px; height: 16px; }
+.empty-state.compact h3,
+.empty-state.compact p,
+.empty-state.compact .empty-hint { display: none; }
+.empty-state.compact .cta-button { width: auto; margin-left: auto; padding: 9px 16px; font-size: 13.5px; }
+
+/* messages */
 
 .timeline-item.message {
-    padding: 0.625rem 0.875rem;
-    border-left: 3px solid var(--color-faint);
-    border-radius: 0.25rem 0.75rem 0.75rem 0.25rem;
-    background: var(--color-paper);
-    color: var(--color-fg);
-    line-height: 1.45;
-    overflow-wrap: anywhere;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    max-width: 85%;
+    line-height: 1.5;
+    overflow-wrap: break-word;
 }
 
-.timeline-item.message.user {
-    border-left-color: var(--color-ring-blue);
+.timeline-item.message .role-chip {
+    display: block;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 3px;
 }
 
 .timeline-item.message.assistant {
-    border-left-color: var(--color-violet);
+    align-self: flex-start;
+    border-left: 3px solid var(--primary);
+}
+
+.timeline-item.message.assistant .role-chip { color: var(--primary); }
+
+.timeline-item.message.user {
+    align-self: flex-end;
+    border-right: 3px solid var(--secondary);
+}
+
+.timeline-item.message.user .role-chip { color: var(--secondary); }
+
+/* ------------------------------------------------------------------ logs */
+
+#logs { width: var(--aside-w); flex-shrink: 0; }
+
+#logMessages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
 }
 
 .timeline-item.log-message {
-    padding: 0.5rem 0.75rem;
-    border-left: 3px solid var(--color-line);
-    border-radius: 0.25rem 0.75rem 0.75rem 0.25rem;
-    background: var(--color-paper);
-    color: var(--color-fg);
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
+    color: var(--muted);
     line-height: 1.5;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    max-width: 100%;
-    box-sizing: border-box;
+    overflow-wrap: break-word;
+    border-bottom: 1px dashed var(--border);
+    padding-bottom: 8px;
 }
 
-/* Latency card (latency_update in index.html) */
+.timeline-spacer { flex-shrink: 0; }
 
-.timeline-item.log-message.latency-card {
-    padding: 0.75rem 0.875rem;
-    border: 1px solid var(--color-line);
-    border-radius: 0.75rem;
-    white-space: normal;
-}
+/* latency card */
+
+.latency-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--card); }
 
 .latency-title {
-    margin-bottom: 0.375rem;
-    color: var(--color-muted);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
 }
 
 .latency-row {
     display: flex;
     justify-content: space-between;
-    gap: 0.75rem;
-    padding: 2px 0;
+    gap: 10px;
+    padding: 1.5px 0;
+    color: var(--text);
 }
 
-.latency-row.latency-sub {
-    padding-left: 0.75rem;
-    color: var(--color-muted);
-}
+.latency-row.latency-sub { color: var(--muted); padding-left: 10px; }
 
 .latency-row.latency-total {
-    margin-top: 0.25rem;
-    padding-top: 0.375rem;
-    border-top: 1px solid var(--color-line);
-    font-weight: 600;
+    border-top: 1px solid var(--border);
+    margin-top: 5px;
+    padding-top: 5px;
+    font-weight: 700;
 }
 
-.latency-value {
-    font-variant-numeric: tabular-nums;
+.latency-value { font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------- scrollbar */
+
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--pebble); border-radius: 5px; border: 2px solid var(--panel); }
+
+/* ------------------------------------------------------------ responsive */
+
+@media (max-width: 1100px) {
+    #logs { display: none !important; }
 }
 
-:focus-visible {
-    outline: 2px solid var(--color-magenta);
-    outline-offset: 2px;
+@media (max-width: 860px) {
+    .app-grid { flex-direction: column; height: auto; }
+    body { overflow: auto; }
+    .sidebar { width: 100%; }
+    .header-title, .header-divider { display: none; }
 }
 
-/* Tablets in portrait: a narrower sidebar */
-@media (max-width: 1023px) {
-    .sidebar {
-        width: 16rem;
-    }
+/* caller registration inputs (sidebar) */
 
-    .columns-container {
-        padding: 1rem;
-        gap: 1rem;
-    }
+.device-select input {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font: inherit;
+    width: 100%;
 }
 
-/* Phones: one column that scrolls; the sidebar sits above the conversation */
-@media (max-width: 719px) {
-    body {
-        height: auto;
-        overflow: auto;
-    }
+.device-select input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
 
-    .main-container {
-        flex-direction: column;
-        height: auto;
-    }
+.cta-button:disabled { opacity: 0.6; cursor: default; }
 
-    .sidebar {
-        width: auto;
-        overflow: visible;
-        padding: 1.25rem 1rem;
-    }
+/* ------------------------------------------------------------ brand layer */
+/* Kept together so the dashboard rules above stay as they were; these win by order. */
 
-    .ring {
-        width: 9rem;
-        height: 9rem;
-    }
+button, select, input { font: inherit; }
 
-    .columns-container {
-        flex-direction: column;
-        padding: 1rem;
-    }
+/* Header: the Deepgram wordmark in place of the text heading */
+.brand { display: flex; align-items: center; }
+.brand-logo { height: 22px; width: auto; display: block; }
+/* The kit's wordmark is off-white (made for the stage); darken it on light paper */
+body:not(.dark-mode) .brand-logo { filter: invert(1); }
+.header-title { font-weight: 600; letter-spacing: -0.01em; }
 
-    .column {
-        height: 70dvh;
-        flex: none;
-    }
+/* Section headings and small labels use the kit's mono label style */
+.panel-head,
+.side-label,
+.latency-title,
+.timeline-item.message .role-chip {
+    font-family: var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 500;
+}
+.panel-head { font-size: 0.75rem; color: var(--muted); }
 
-    /* Spacers line the conversation up with the logs side by side; stacked, they only
-       push the messages out of view (the script sets display inline, hence !important) */
-    .timeline-spacer {
-        display: none !important;
-    }
+/* Buttons: brand pills */
+.cta-button,
+.segmented,
+.segmented button { border-radius: 999px; }
+.cta-button { font-weight: 600; }
+.cta-button:hover { filter: none; background: var(--color-magenta-2); color: white; }
+
+/* Sidebar: the stage. Dark texture and white text in both themes, with the page's
+   tokens re-pointed inside it so every sidebar control follows without new rules. */
+.panel.sidebar {
+    background: var(--color-ink) url("vdui/textures/stage.webp") center / cover no-repeat;
+    border-color: var(--stage-line);
+    color: var(--stage-text);
+    --text: var(--stage-text);
+    --muted: var(--stage-text-muted);
+    --pebble: rgb(255 255 255 / 0.4);
+    --border: var(--stage-line);
+    --card: var(--stage-fill);
+    --card-hover: rgb(255 255 255 / 0.1);
+    --primary: var(--color-magenta);
+    --primary-dim: color-mix(in srgb, var(--color-magenta) 18%, transparent);
+    --warning: var(--color-yellow);
+    --on-primary: var(--color-ink);
+    scrollbar-color: var(--stage-line) transparent;
+}
+.panel.sidebar .status-card,
+.panel.sidebar details.side-details[open] {
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    background: #ffffff0d;
+    border: 1px solid #ffffff1a;
+}
+.panel.sidebar details.side-details[open] { border-radius: var(--radius-sm); }
+.panel.sidebar .device-select select,
+.panel.sidebar .device-select input { color-scheme: dark; }
+.panel.sidebar .device-select select option { color: var(--color-ink); }
+
+/* Voice ring (<deepgram-voice-ring>, static/vdui): follows the browser call */
+.ring {
+    display: block;
+    width: 9rem;
+    height: 9rem;
+    margin: 0.25rem auto 0;
+    flex-shrink: 0;
+}
+
+/* Latency total color is set inline from --success/--warning/--danger (index.html) */
+
+/* On the stage, the active nav item is a white tint, not magenta on magenta */
+.panel.sidebar .nav-item.active { background: rgb(255 255 255 / 0.14); color: var(--stage-text); }
+
+/* Phones: the header wraps so the call button gets its own row instead of sliding
+   under the Transcript / Logs switch; the ring shrinks */
+@media (max-width: 860px) {
+    .app-header { height: auto; flex-wrap: wrap; padding: 10px 14px; gap: 10px; }
+    .brand { order: 1; }
+    .segmented { order: 2; margin-left: auto; }
+    .header-center { order: 3; flex-basis: 100%; justify-content: flex-start; }
+    .ring { width: 7rem; height: 7rem; }
 }
