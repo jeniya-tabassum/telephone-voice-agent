@@ -1,17 +1,20 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" data-theme="dark">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Deepgram Voice Agent Dashboard</title>
+        <title>Deepgram voice agent dashboard</title>
+        <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='vdui/logos/deepgram-favicon.svg') }}">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+        <link rel="stylesheet" href="{{ url_for('static', filename='vdui/brand.css') }}">
         <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+        <script src="{{ url_for('static', filename='vdui/ring-element/deepgram-voice-ring.js') }}"></script>
     </head>
 <body class="dark-mode">
     <header class="app-header">
-        <div class="brand">Deepgram</div>
+        <div class="brand"><img class="brand-logo" src="{{ url_for('static', filename='vdui/logos/deepgram.svg') }}" alt="Deepgram"></div>
         <div class="header-center">
-            <div class="header-title">Voice Agent Dashboard</div>
+            <div class="header-title">Voice agent dashboard</div>
             <span class="header-divider">|</span>
             <a class="pill-button" href="tel:+14153013720">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
@@ -26,9 +29,10 @@
 
     <div class="app-grid">
         <aside class="panel sidebar">
+            <deepgram-voice-ring id="ring" class="ring" state="listening" aria-hidden="true"></deepgram-voice-ring>
             <div class="status-card">
                 <span class="dot" id="statusDot"></span>
-                <span id="status">Microphone: Not active</span>
+                <span id="status" role="status" aria-live="polite">Microphone: Not active</span>
             </div>
 
             <div class="side-section">
@@ -66,7 +70,7 @@
 
             <div class="nav-item active">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M7 13l4-4 4 3 5-6"/></svg>
-                Live Demo
+                Live demo
             </div>
 
             <details class="side-details">
@@ -86,7 +90,7 @@
             <details class="side-details" open>
                 <summary>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36z"/></svg>
-                    Demo Guide
+                    Demo guide
                     <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
                 </summary>
                 <div class="details-body">
@@ -132,7 +136,7 @@
         </aside>
 
         <section class="panel transcript-panel">
-            <div class="panel-head">Call Transcript</div>
+            <div class="panel-head">Call transcript</div>
             <div id="conversationMessages">
                 <div class="empty-state" id="emptyState">
                     <div class="icon-circle">
@@ -140,14 +144,14 @@
                     </div>
                     <h3>Talk to {{ voice_name }}</h3>
                     <p>Start the voice agent and ask anything about Deepgram &mdash; products, pricing, or how to get started. Or dial the number on the left to try the phone path.</p>
-                    <button id="startButton" class="cta-button">Start Voice Agent</button>
+                    <button id="startButton" class="cta-button">Start voice agent</button>
                     <div class="empty-hint">Headphones recommended to avoid echo.</div>
                 </div>
             </div>
         </section>
 
         <aside class="panel" id="logs">
-            <div class="panel-head">Agent Activity</div>
+            <div class="panel-head">Agent activity</div>
             <div id="logMessages"></div>
         </aside>
     </div>
@@ -170,6 +174,8 @@
         const segLogs = document.getElementById('segLogs');
 
         let isActive = false;
+        let micAnalyser = null;    // feeds the voice ring while listening
+        let outputAnalyser = null; // feeds the voice ring while the agent speaks
         let currentGroup = null;
         let lastMessageTimestamp = null;
         let messageCounter = 0;
@@ -317,7 +323,7 @@
                         browserAudio: true
                     });
 
-                    startButton.textContent = 'Stop Voice Agent';
+                    startButton.textContent = 'Stop voice agent';
                     statusDiv.textContent = 'Microphone: Active';
                     isActive = true;
                 } catch (err) {
@@ -328,7 +334,7 @@
             } else {
                 socket.emit('stop_voice_agent');
                 stopAudioCapture();
-                startButton.textContent = 'Start Voice Agent';
+                startButton.textContent = 'Start voice agent';
                 statusDiv.textContent = 'Microphone: Not active';
                 isActive = false;
             }
@@ -419,6 +425,9 @@
                     }
 
                     microphone = audioContext.createMediaStreamSource(mediaStream);
+                    micAnalyser = audioContext.createAnalyser();
+                    micAnalyser.fftSize = 1024;
+                    microphone.connect(micAnalyser);
 
                     const bufferSize = 1024;
                     processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
@@ -471,6 +480,7 @@
                 microphone.disconnect();
                 microphone = null;
             }
+            micAnalyser = null;
             if (mediaStream) {
                 mediaStream.getTracks().forEach(track => track.stop());
                 mediaStream = null;
@@ -617,7 +627,7 @@
 
             const title = document.createElement('div');
             title.className = 'latency-title';
-            title.textContent = 'Latency Breakdown';
+            title.textContent = 'Latency breakdown';
             breakdown.appendChild(title);
 
             // Built as nodes, not concatenated markup: function_name comes from
@@ -645,7 +655,7 @@
                 addLatencyRow('STT', data.stt);
             }
             if (data.llm_think !== undefined) {
-                addLatencyRow('LLM Think', data.llm_think);
+                addLatencyRow('LLM think', data.llm_think);
             }
             if (data.function !== undefined) {
                 const fname = data.function_name || 'function';
@@ -694,21 +704,23 @@
                 .replace(/>/g, '&gt;');
         }
 
+        // Log colors are CSS variables (static/style.css) so they follow the brand
+        // palette and the page's theme; both sets point at the same variables.
         function convertAnsiToHtml(text) {
             const ansiToHtml = {
                 dark: {
-                    '[38;5;231m': 'color: #fff;',
-                    '[38;5;116m': 'color: #87d7d7;',
-                    '[38;5;114m': 'color: #87d787;',
-                    '[38;5;183m': 'color: #d7afff;',
-                    '[38;5;186m': 'color: #d7d787;',
+                    '[38;5;231m': 'color: var(--log-default);',
+                    '[38;5;116m': 'color: var(--log-user);',
+                    '[38;5;114m': 'color: var(--log-agent);',
+                    '[38;5;183m': 'color: var(--log-function);',
+                    '[38;5;186m': 'color: var(--log-latency);',
                 },
                 light: {
-                    '[38;5;231m': 'color: #000;',
-                    '[38;5;116m': 'color: #0086b3;',
-                    '[38;5;114m': 'color: #008744;',
-                    '[38;5;183m': 'color: #8b3d90;',
-                    '[38;5;186m': 'color: #b36d00;',
+                    '[38;5;231m': 'color: var(--log-default);',
+                    '[38;5;116m': 'color: var(--log-user);',
+                    '[38;5;114m': 'color: var(--log-agent);',
+                    '[38;5;183m': 'color: var(--log-function);',
+                    '[38;5;186m': 'color: var(--log-latency);',
                 },
                 '[0m': ''
             };
@@ -741,7 +753,7 @@
             console.log('Disconnected from server');
             connDot.classList.remove('live');
             isActive = false;
-            startButton.textContent = 'Start Voice Agent';
+            startButton.textContent = 'Start voice agent';
             statusDiv.textContent = 'Microphone: Not active';
             stopAudioCapture();
         });
@@ -749,7 +761,7 @@
         socket.on('voice_agent_ended', () => {
             console.log('Voice agent call ended');
             isActive = false;
-            startButton.textContent = 'Start Voice Agent';
+            startButton.textContent = 'Start voice agent';
             statusDiv.textContent = 'Call ended';
             stopAudioCapture();
         });
@@ -769,6 +781,8 @@
                 if (!audioOutputContext) {
                     audioOutputContext = new (window.AudioContext || window.webkitAudioContext)();
                     nextPlayTime = audioOutputContext.currentTime;
+                    outputAnalyser = audioOutputContext.createAnalyser();
+                    outputAnalyser.fftSize = 1024;
                 }
 
                 if (sampleRate) {
@@ -801,6 +815,7 @@
 
                 source.connect(gainNode);
                 gainNode.connect(audioOutputContext.destination);
+                if (outputAnalyser) gainNode.connect(outputAnalyser);
 
                 const currentTime = audioOutputContext.currentTime;
                 const bufferDuration = audioBuffer.duration;
@@ -819,6 +834,7 @@
 
         function stopAudioOutput() {
             nextPlayTime = 0;
+            outputAnalyser = null;
             lastSeq = -1;
 
             if (audioOutputContext && audioOutputContext.state !== 'closed') {
@@ -884,10 +900,16 @@
 
         const darkModeToggle = document.getElementById('darkMode');
 
-        document.body.classList.toggle('dark-mode', darkModeToggle.checked);
+        // Theme: body.dark-mode for the page, data-theme on <html> for the kit's paper surface
+        function applyTheme(isDarkMode) {
+            document.body.classList.toggle('dark-mode', isDarkMode);
+            document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+        }
+
+        applyTheme(darkModeToggle.checked);
 
         darkModeToggle.addEventListener('change', () => {
-            document.body.classList.toggle('dark-mode', darkModeToggle.checked);
+            applyTheme(darkModeToggle.checked);
             localStorage.setItem('darkMode', darkModeToggle.checked);
 
             const logMsgs = document.querySelectorAll('.timeline-item.log-message');
@@ -904,9 +926,34 @@
             if (savedDarkMode !== null) {
                 const isDarkMode = savedDarkMode === 'true';
                 darkModeToggle.checked = isDarkMode;
-                document.body.classList.toggle('dark-mode', isDarkMode);
+                applyTheme(isDarkMode);
             }
         });
+
+        // Voice ring (<deepgram-voice-ring>, static/vdui): "speaking" while agent audio is
+        // scheduled, "listening" otherwise; level is the RMS of the matching analyser, 0..1.
+        // Phone calls through Twilio don't reach this page, so it only follows browser sessions.
+        const ring = document.getElementById('ring');
+        const ringSamples = new Uint8Array(1024);
+        let ringState = ring ? ring.getAttribute('state') : null;
+        function analyserLevel(analyser) {
+            if (!analyser) return 0;
+            analyser.getByteTimeDomainData(ringSamples);
+            let sum = 0;
+            for (const v of ringSamples) sum += ((v - 128) / 128) ** 2;
+            return Math.min(1, Math.sqrt(sum / ringSamples.length) * 4);
+        }
+        function tickRing() {
+            const speaking = isActive && !!audioOutputContext && nextPlayTime > audioOutputContext.currentTime;
+            const state = speaking ? 'speaking' : 'listening';
+            if (state !== ringState) {
+                ring.setAttribute('state', state);
+                ringState = state;
+            }
+            ring.level = speaking ? analyserLevel(outputAnalyser) : (isActive ? analyserLevel(micAnalyser) : 0);
+            requestAnimationFrame(tickRing);
+        }
+        if (ring) tickRing();
     </script>
 </body>
 </html>

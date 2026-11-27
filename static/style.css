@@ -1,48 +1,59 @@
 /* Deepgram Voice Agent Dashboard
-   Design tokens mirror dg-telephony-voice-agent.fly.dev (dark-first). */
+ * Layout on top of Deepgram's brand kit (static/vdui/brand.css, loaded first).
+ * Colors and fonts come from the kit's tokens (var(--color-*), --font-sans/--font-mono);
+ * the page's own tokens below just name them. The Dark mode toggle sets data-theme on
+ * <html>, which flips the kit's paper surface, and body.dark-mode for this page.
+ *
+ * Surfaces: the sidebar is the stage (dark texture, white text, the voice ring) in both
+ * themes; the header, transcript and logs are cards on paper.
+ */
 
 :root {
-    --bg: #0b0b0c;
-    --panel: #101014;
-    --card: #1a1a1f;
-    --card-hover: #222228;
-    --border: #2c2c33;
-    --text: #fbfbff;
-    --muted: #949498;
-    --pebble: #4e4e52;
-    --primary: #13ef95;
-    --primary-dim: rgba(19, 239, 149, 0.12);
-    --secondary: #149afb;
-    --secondary-dim: rgba(20, 154, 251, 0.12);
-    --danger: #f04438;
-    --warning: #fec84b;
-    --success: #12b76a;
-    --on-primary: #000;
-    --radius: 12px;
-    --radius-sm: 8px;
-    --sidebar-w: 18rem;
+    --bg: var(--color-paper);
+    --panel: var(--color-card);
+    --card: color-mix(in srgb, var(--color-paper) 70%, var(--color-card));
+    --card-hover: color-mix(in srgb, var(--color-line) 60%, var(--color-card));
+    --border: var(--color-line);
+    --text: var(--color-fg);
+    --muted: var(--color-muted);
+    --pebble: var(--color-faint);
+    --primary: var(--color-magenta-2);
+    --primary-dim: color-mix(in srgb, var(--color-magenta) 12%, transparent);
+    --secondary: var(--color-violet);
+    --secondary-dim: color-mix(in srgb, var(--color-violet) 12%, transparent);
+    --danger: var(--color-red);
+    /* Light paper: darken the bright brand signals so text stays readable */
+    --warning: color-mix(in srgb, var(--color-orange) 75%, var(--color-ink));
+    --success: color-mix(in srgb, var(--color-lime) 50%, var(--color-ink));
+    --on-primary: var(--color-ink);
+    --radius: var(--radius-card);
+    --radius-sm: 0.75rem;
+    --sidebar-w: 19rem;
     --aside-w: 24rem;
-    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+    /* Log line colors (convertAnsiToHtml in index.html) */
+    --log-default: var(--color-fg);
+    --log-user: color-mix(in srgb, var(--color-ring-blue) 60%, var(--color-ink));
+    --log-agent: color-mix(in srgb, var(--color-lime) 50%, var(--color-ink));
+    --log-function: var(--color-violet);
+    --log-latency: color-mix(in srgb, var(--color-yellow) 40%, var(--color-ink));
+
+    /* Text on the stage is white in both themes, as in the kit (paper flips; the stage doesn't) */
+    --stage-text: white;
+    --stage-text-muted: rgb(255 255 255 / 0.72);
+    --stage-line: rgb(255 255 255 / 0.16);
+    --stage-fill: rgb(255 255 255 / 0.06);
 }
 
-body:not(.dark-mode) {
-    --bg: #ffffff;
-    --panel: #f8f9fa;
-    --card: #f3f4f6;
-    --card-hover: #e9eaee;
-    --border: #d1d5db;
-    --text: #111827;
-    --muted: #6b7280;
-    --pebble: #9ca3af;
-    --primary: #047857;
-    --primary-dim: rgba(4, 120, 87, 0.10);
-    --secondary: #0369a1;
-    --secondary-dim: rgba(3, 105, 161, 0.10);
-    --danger: #b91c1c;
-    --warning: #a16207;
-    --success: #15803d;
-    --on-primary: #fff;
+:root[data-theme="dark"] {
+    --primary: var(--color-magenta);
+    --secondary: var(--color-violet-3);
+    --warning: var(--color-orange);
+    --success: var(--color-lime);
+    --log-user: var(--color-ring-blue);
+    --log-agent: var(--color-lime);
+    --log-function: var(--color-violet-3);
+    --log-latency: var(--color-yellow);
 }
 
 * { box-sizing: border-box; }
@@ -51,7 +62,7 @@ body {
     font-family: var(--font-sans);
     margin: 0;
     padding: 0;
-    height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     background: var(--bg);
     color: var(--text);
@@ -576,3 +587,88 @@ details[open] > summary .chevron { transform: rotate(180deg); }
 }
 
 .cta-button:disabled { opacity: 0.6; cursor: default; }
+
+/* ------------------------------------------------------------ brand layer */
+/* Kept together so the dashboard rules above stay as they were; these win by order. */
+
+button, select, input { font: inherit; }
+
+/* Header: the Deepgram wordmark in place of the text heading */
+.brand { display: flex; align-items: center; }
+.brand-logo { height: 22px; width: auto; display: block; }
+/* The kit's wordmark is off-white (made for the stage); darken it on light paper */
+body:not(.dark-mode) .brand-logo { filter: invert(1); }
+.header-title { font-weight: 600; letter-spacing: -0.01em; }
+
+/* Section headings and small labels use the kit's mono label style */
+.panel-head,
+.side-label,
+.latency-title,
+.timeline-item.message .role-chip {
+    font-family: var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 500;
+}
+.panel-head { font-size: 0.75rem; color: var(--muted); }
+
+/* Buttons: brand pills */
+.cta-button,
+.segmented,
+.segmented button { border-radius: 999px; }
+.cta-button { font-weight: 600; }
+.cta-button:hover { filter: none; background: var(--color-magenta-2); color: white; }
+
+/* Sidebar: the stage. Dark texture and white text in both themes, with the page's
+   tokens re-pointed inside it so every sidebar control follows without new rules. */
+.panel.sidebar {
+    background: var(--color-ink) url("vdui/textures/stage.webp") center / cover no-repeat;
+    border-color: var(--stage-line);
+    color: var(--stage-text);
+    --text: var(--stage-text);
+    --muted: var(--stage-text-muted);
+    --pebble: rgb(255 255 255 / 0.4);
+    --border: var(--stage-line);
+    --card: var(--stage-fill);
+    --card-hover: rgb(255 255 255 / 0.1);
+    --primary: var(--color-magenta);
+    --primary-dim: color-mix(in srgb, var(--color-magenta) 18%, transparent);
+    --warning: var(--color-yellow);
+    --on-primary: var(--color-ink);
+    scrollbar-color: var(--stage-line) transparent;
+}
+.panel.sidebar .status-card,
+.panel.sidebar details.side-details[open] {
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    background: #ffffff0d;
+    border: 1px solid #ffffff1a;
+}
+.panel.sidebar details.side-details[open] { border-radius: var(--radius-sm); }
+.panel.sidebar .device-select select,
+.panel.sidebar .device-select input { color-scheme: dark; }
+.panel.sidebar .device-select select option { color: var(--color-ink); }
+
+/* Voice ring (<deepgram-voice-ring>, static/vdui): follows the browser call */
+.ring {
+    display: block;
+    width: 9rem;
+    height: 9rem;
+    margin: 0.25rem auto 0;
+    flex-shrink: 0;
+}
+
+/* Latency total color is set inline from --success/--warning/--danger (index.html) */
+
+/* On the stage, the active nav item is a white tint, not magenta on magenta */
+.panel.sidebar .nav-item.active { background: rgb(255 255 255 / 0.14); color: var(--stage-text); }
+
+/* Phones: the header wraps so the call button gets its own row instead of sliding
+   under the Transcript / Logs switch; the ring shrinks */
+@media (max-width: 860px) {
+    .app-header { height: auto; flex-wrap: wrap; padding: 10px 14px; gap: 10px; }
+    .brand { order: 1; }
+    .segmented { order: 2; margin-left: auto; }
+    .header-center { order: 3; flex-basis: 100%; justify-content: flex-start; }
+    .ring { width: 7rem; height: 7rem; }
+}
